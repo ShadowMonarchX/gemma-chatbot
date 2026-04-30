@@ -13,6 +13,7 @@ class AppSettings(BaseSettings):
         env_file=(".env",),
         env_file_encoding="utf-8",
         extra="ignore",
+        protected_namespaces=(),
     )
 
     model_path: Path = Field(default=Path("backend/models"), alias="MODEL_PATH")

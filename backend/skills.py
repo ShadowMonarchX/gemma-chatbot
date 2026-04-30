@@ -8,7 +8,7 @@ from .errors import ValidationError
 class Skill(BaseModel):
     """Represents one task-specific system prompt profile."""
 
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=True, protected_namespaces=())
 
     id: str
     label: str

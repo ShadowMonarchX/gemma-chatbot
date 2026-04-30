@@ -116,7 +116,10 @@ describe('Chat page', () => {
 
   const renderChatApp = () =>
     render(
-      <MemoryRouter initialEntries={['/chat']}>
+      <MemoryRouter
+        initialEntries={['/chat']}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
         <App />
       </MemoryRouter>
     );

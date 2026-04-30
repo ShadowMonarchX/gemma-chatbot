@@ -1,17 +1,10 @@
-import { useEffect, useState, type FC } from 'react';
+import type { FC } from 'react';
 
 export interface SkillUsageBarProps {
   usage: Record<string, number>;
 }
 
 const SkillUsageBar: FC<SkillUsageBarProps> = ({ usage }) => {
-  const [animate, setAnimate] = useState(false);
-
-  useEffect(() => {
-    const id = window.setTimeout(() => setAnimate(true), 40);
-    return () => window.clearTimeout(id);
-  }, [usage]);
-
   const total = Object.values(usage).reduce((sum, value) => sum + value, 0);
   const entries: Array<[string, number]> =
     Object.entries(usage).length > 0 ? Object.entries(usage) : [['chat', 0], ['code', 0]];
@@ -29,7 +22,7 @@ const SkillUsageBar: FC<SkillUsageBarProps> = ({ usage }) => {
             <div className="h-3 overflow-hidden rounded-full bg-slate-700">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400 transition-all duration-500 ease-out"
-                style={{ width: animate ? `${percent}%` : '0%' }}
+                style={{ width: `${percent}%` }}
               />
             </div>
           </div>

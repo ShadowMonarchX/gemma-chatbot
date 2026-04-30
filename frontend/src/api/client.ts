@@ -14,8 +14,23 @@ export class ApiError extends Error {
 export class ApiClient {
   private baseUrl: string;
 
-  public constructor(baseUrl: string = '/api') {
+  public constructor(baseUrl: string = ApiClient.resolveBaseUrl()) {
     this.baseUrl = baseUrl;
+  }
+
+  private static resolveBaseUrl(): string {
+    const envBase =
+      typeof import.meta !== 'undefined' &&
+      import.meta.env &&
+      typeof import.meta.env.VITE_API_BASE_URL === 'string'
+        ? import.meta.env.VITE_API_BASE_URL
+        : '';
+
+    if (envBase.trim().length > 0) {
+      return envBase.replace(/\/+$/, '');
+    }
+
+    return 'http://127.0.0.1:8000/api';
   }
 
   public async apiCall<T>(url: string, options: RequestInit = {}): Promise<T> {

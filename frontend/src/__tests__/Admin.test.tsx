@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -75,7 +75,7 @@ describe('Admin page', () => {
     );
 
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Admin />
       </MemoryRouter>
     );
@@ -99,7 +99,7 @@ describe('Admin page', () => {
     );
 
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Admin />
       </MemoryRouter>
     );
@@ -120,7 +120,7 @@ describe('Admin page', () => {
     vi.stubGlobal('fetch', fetchSpy);
 
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Admin />
       </MemoryRouter>
     );
@@ -129,7 +129,9 @@ describe('Admin page', () => {
     await Promise.resolve();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(10000);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
     await Promise.resolve();
     await Promise.resolve();
     expect(fetchSpy).toHaveBeenCalledTimes(2);
@@ -145,7 +147,7 @@ describe('Admin page', () => {
     vi.stubGlobal('fetch', fetchSpy);
 
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Admin />
       </MemoryRouter>
     );

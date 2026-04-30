@@ -10,7 +10,7 @@ from .hardware import HardwareInfo
 class ChatMessage(BaseModel):
     """Single chat message in a request payload."""
 
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=True, protected_namespaces=())
 
     role: Literal["user", "assistant"]
     content: str = Field(min_length=1, max_length=4096)
@@ -19,7 +19,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     """Strict request body for the chat streaming endpoint."""
 
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=True, protected_namespaces=())
 
     messages: list[ChatMessage] = Field(min_length=1, max_length=20)
     skill_id: str = Field(pattern=r"^[a-z_]+$", max_length=32)
@@ -30,7 +30,7 @@ class ChatRequest(BaseModel):
 class ChatStreamEnvelope(BaseModel):
     """OpenAPI envelope model representing one SSE `data:` payload."""
 
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=True, protected_namespaces=())
 
     data: str
 
@@ -38,7 +38,7 @@ class ChatStreamEnvelope(BaseModel):
 class ErrorResponse(BaseModel):
     """Sanitized API error envelope returned by exception handlers."""
 
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=True, protected_namespaces=())
 
     error: str
     request_id: str
@@ -47,7 +47,7 @@ class ErrorResponse(BaseModel):
 class SkillResponse(BaseModel):
     """Public skill shape exposed to frontend callers."""
 
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=True, protected_namespaces=())
 
     id: str
     label: str
@@ -57,7 +57,7 @@ class SkillResponse(BaseModel):
 class ModelInfoResponse(BaseModel):
     """Model metadata returned by the models endpoint."""
 
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=True, protected_namespaces=())
 
     id: str
     label: str
@@ -73,7 +73,7 @@ class ModelInfoResponse(BaseModel):
 class ModelsResponse(BaseModel):
     """Response body for available model catalog and active selection."""
 
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=True, protected_namespaces=())
 
     active_model_id: str
     models: list[ModelInfoResponse]
@@ -82,7 +82,7 @@ class ModelsResponse(BaseModel):
 class HealthResponse(BaseModel):
     """Operational health summary returned by `/api/health`."""
 
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=True, protected_namespaces=())
 
     status: str
     model_id: str
@@ -100,7 +100,7 @@ class HealthResponse(BaseModel):
 class AdminResponse(BaseModel):
     """Extended operational metrics returned by `/api/admin`."""
 
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=True, protected_namespaces=())
 
     status: str
     model_id: str

@@ -213,6 +213,11 @@ class ChatbotApp:
 
         self._started_at: float = time.time()
         self._startup_error: str | None = None
+        self._no_model_error_message = "No models found. Please install at least one model."
+        self._no_model_solution = [
+            "Install mlx-lm: pip install mlx-lm",
+            "OR place GGUF model in backend/models/",
+        ]
 
         self.hardware_detector: HardwareDetector = HardwareDetector()
         self.selector: QuantizationSelector = QuantizationSelector()
@@ -238,6 +243,22 @@ class ChatbotApp:
                 model_stats.get("model_load_ms", 0),
                 model_stats.get("last_tokens_per_sec", 0.0),
             )
+        except ModelError as model_exc:
+            if self._is_no_model_error(model_exc.message):
+                self._startup_error = model_exc.message
+                self.logger.warning("startup_no_models_available message=%s", model_exc.message)
+            else:
+                self.logger.error("startup_failure model_error=%s", model_exc.message)
+                self.logger.error(traceback.format_exc())
+                try:
+                    fallback = LlamaCppQuantization(quant="Q4_K_M", n_gpu_layers=0)
+                    self.model_manager.configure(hardware=self.hardware)
+                    self.model_manager.load(strategy=fallback)
+                    self.logger.warning("startup_fallback backend=llama.cpp reason=%s", model_exc.message)
+                except Exception as fallback_exc:
+                    self._startup_error = f"{model_exc}; fallback={fallback_exc}"
+                    self.logger.error("startup_fallback_failure error=%s", str(fallback_exc))
+                    self.logger.error(traceback.format_exc())
         except Exception as primary_exc:
             self.logger.error("startup_failure primary_error=%s", str(primary_exc))
             self.logger.error(traceback.format_exc())
@@ -324,6 +345,14 @@ class ChatbotApp:
         async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
             request_id = self._request_id(request)
             self.logger.error("app_error request_id=%s detail=%s", request_id, exc.log_detail)
+            if isinstance(exc, ModelError) and self._is_no_model_error(exc.message):
+                payload = self._no_model_payload()
+                payload["request_id"] = request_id
+                return JSONResponse(
+                    status_code=503,
+                    content=payload,
+                    headers={"X-Request-Id": request_id},
+                )
             return JSONResponse(
                 status_code=exc.status_code,
                 content={"error": exc.message, "request_id": request_id},
@@ -333,13 +362,19 @@ class ChatbotApp:
         @self.app.exception_handler(HTTPException)
         async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
             request_id = self._request_id(request)
-            detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
+            if isinstance(exc.detail, dict):
+                content = dict(exc.detail)
+                content.setdefault("error", "Request failed")
+            else:
+                detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
+                content = {"error": detail}
+            content["request_id"] = request_id
             headers = {"X-Request-Id": request_id}
             if exc.headers:
                 headers.update(exc.headers)
             return JSONResponse(
                 status_code=exc.status_code,
-                content={"error": detail, "request_id": request_id},
+                content=content,
                 headers=headers,
             )
 
@@ -384,7 +419,7 @@ class ChatbotApp:
                 headers={"X-Request-Id": request_id},
             )
 
-    async def chat(self, request: Request, payload: ChatRequest) -> StreamingResponse:
+    async def chat(self, request: Request, payload: ChatRequest) -> StreamingResponse | JSONResponse:
         """Validate request and stream model output tokens as SSE.
 
         Args:
@@ -447,6 +482,14 @@ class ChatbotApp:
                 tokens_generated=0,
                 first_token_ms=0,
             )
+            if self._is_no_model_error(exc.message):
+                payload_body = self._no_model_payload()
+                payload_body["request_id"] = request_id
+                return JSONResponse(
+                    status_code=503,
+                    content=payload_body,
+                    headers={"X-Request-Id": request_id},
+                )
             raise HTTPException(status_code=500, detail=exc.message) from exc
 
         iterator = SSETokenStream(
@@ -582,6 +625,17 @@ class ChatbotApp:
         if request.client and request.client.host:
             return request.client.host
         return "127.0.0.1"
+
+    def _is_no_model_error(self, message: str) -> bool:
+        """Return whether a message indicates no local model is available."""
+        return message.strip() == self._no_model_error_message
+
+    def _no_model_payload(self) -> dict[str, Any]:
+        """Return user-friendly no-model guidance payload."""
+        return {
+            "error": "No local model found",
+            "solution": self._no_model_solution,
+        }
 
 
 chatbot_app = ChatbotApp()

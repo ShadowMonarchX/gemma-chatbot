@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 class HardwareInfo(BaseModel):
     """Strict representation of host hardware capabilities."""
 
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=True, protected_namespaces=())
 
     chip: str
     ram_total_gb: float
