@@ -5,6 +5,7 @@ import json
 import os
 import time
 from collections import Counter
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Literal, Protocol
@@ -298,20 +299,10 @@ async def _collect_chunks(
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Gemma 4 Local Chatbot", version="1.0.0")
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["x-response-ms"],
-    )
-
     runtime = RuntimeState()
-    app.state.runtime = runtime
 
-    @app.on_event("startup")
-    async def on_startup() -> None:
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
         runtime.hardware = detect_hardware()
         model_backend, model_load_ms = load_model_backend(runtime.hardware)
         runtime.model_backend = model_backend
@@ -321,6 +312,18 @@ def create_app() -> FastAPI:
         print("[boot] metal_gpu=", runtime.hardware.metal_gpu, sep="")
         print("[boot] quantization=", runtime.hardware.quantization, sep="")
         print("[boot] model_load_ms=", runtime.model_load_ms, sep="")
+        yield
+
+    app = FastAPI(title="Gemma 4 Local Chatbot", version="1.0.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["x-response-ms"],
+    )
+
+    app.state.runtime = runtime
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
