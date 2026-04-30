@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+load_dotenv()
 
 
 class AppSettings(BaseSettings):
@@ -17,6 +20,11 @@ class AppSettings(BaseSettings):
     )
 
     model_path: Path = Field(default=Path("backend/models"), alias="MODEL_PATH")
+    model_cache_dir: Path = Field(
+        default=Path("~/.cache/gemma-chatbot"),
+        alias="MODEL_CACHE_DIR",
+    )
+    hf_token: str = Field(default="", alias="HF_TOKEN")
     default_model: str = Field(default="gemma-2b", alias="DEFAULT_MODEL")
     max_tokens: int = Field(default=512, alias="MAX_TOKENS", ge=64, le=4096)
     request_body_limit_bytes: int = Field(

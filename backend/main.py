@@ -214,10 +214,8 @@ class ChatbotApp:
         self._started_at: float = time.time()
         self._startup_error: str | None = None
         self._no_model_error_message = "No models found. Please install at least one model."
-        self._no_model_solution = [
-            "Install mlx-lm: pip install mlx-lm",
-            "OR place GGUF model in backend/models/",
-        ]
+        self._download_in_progress_message = "Model not available yet. Download in progress."
+        self._download_failed_message = "Model download failed. Check server logs for details."
 
         self.hardware_detector: HardwareDetector = HardwareDetector()
         self.selector: QuantizationSelector = QuantizationSelector()
@@ -244,9 +242,9 @@ class ChatbotApp:
                 model_stats.get("last_tokens_per_sec", 0.0),
             )
         except ModelError as model_exc:
-            if self._is_no_model_error(model_exc.message):
+            if self._is_model_unready_error(model_exc.message):
                 self._startup_error = model_exc.message
-                self.logger.warning("startup_no_models_available message=%s", model_exc.message)
+                self.logger.warning("startup_model_unready message=%s", model_exc.message)
             else:
                 self.logger.error("startup_failure model_error=%s", model_exc.message)
                 self.logger.error(traceback.format_exc())
@@ -345,8 +343,8 @@ class ChatbotApp:
         async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
             request_id = self._request_id(request)
             self.logger.error("app_error request_id=%s detail=%s", request_id, exc.log_detail)
-            if isinstance(exc, ModelError) and self._is_no_model_error(exc.message):
-                payload = self._no_model_payload()
+            if isinstance(exc, ModelError) and self._is_model_unready_error(exc.message):
+                payload = self._model_unready_payload(message=exc.message)
                 payload["request_id"] = request_id
                 return JSONResponse(
                     status_code=503,
@@ -482,8 +480,8 @@ class ChatbotApp:
                 tokens_generated=0,
                 first_token_ms=0,
             )
-            if self._is_no_model_error(exc.message):
-                payload_body = self._no_model_payload()
+            if self._is_model_unready_error(exc.message):
+                payload_body = self._model_unready_payload(message=exc.message)
                 payload_body["request_id"] = request_id
                 return JSONResponse(
                     status_code=503,
@@ -626,16 +624,23 @@ class ChatbotApp:
             return request.client.host
         return "127.0.0.1"
 
-    def _is_no_model_error(self, message: str) -> bool:
-        """Return whether a message indicates no local model is available."""
-        return message.strip() == self._no_model_error_message
+    def _is_model_unready_error(self, message: str) -> bool:
+        """Return whether model startup/download is still pending or failed."""
+        normalized = message.strip()
+        if normalized in {
+            self._no_model_error_message,
+            self._download_in_progress_message,
+            self._download_failed_message,
+        }:
+            return True
+        return normalized.lower().startswith("model download failed")
 
-    def _no_model_payload(self) -> dict[str, Any]:
-        """Return user-friendly no-model guidance payload."""
-        return {
-            "error": "No local model found",
-            "solution": self._no_model_solution,
-        }
+    def _model_unready_payload(self, message: str) -> dict[str, Any]:
+        """Return user-friendly payload for model download/startup states."""
+        normalized = message.strip()
+        if normalized == self._no_model_error_message:
+            return {"error": self._download_in_progress_message}
+        return {"error": normalized}
 
 
 chatbot_app = ChatbotApp()
