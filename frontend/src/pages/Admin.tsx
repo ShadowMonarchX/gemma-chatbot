@@ -1,4 +1,5 @@
 import { useEffect, type FC } from 'react';
+import { Link } from 'react-router-dom';
 
 import AdminCard from '../components/AdminCard';
 import SkillUsageBar from '../components/SkillUsageBar';
@@ -75,20 +76,27 @@ const Admin: FC = () => {
           <div>
             <h1 className="text-2xl font-bold">Admin - hardware health</h1>
             <p className="text-sm text-slate-300">
-              Last updated:{' '}
-              {lastUpdated ? new Date(lastUpdated).toLocaleTimeString() : 'not available'}
+              Last updated: {lastUpdated ? new Date(lastUpdated).toLocaleTimeString() : 'not available'}
             </p>
           </div>
-          <button
-            type="button"
-            aria-label="Refresh admin metrics"
-            onClick={() => {
-              void actions.fetchAdmin();
-            }}
-            className="rounded-lg border border-slate-500 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 transition duration-150 ease-in-out hover:border-cyan-300 hover:text-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
-          >
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/chat"
+              className="rounded-lg border border-slate-500 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 transition duration-150 ease-in-out hover:border-cyan-300 hover:text-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
+            >
+              Chat
+            </Link>
+            <button
+              type="button"
+              aria-label="Refresh admin metrics"
+              onClick={() => {
+                void actions.fetchAdmin();
+              }}
+              className="rounded-lg border border-slate-500 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 transition duration-150 ease-in-out hover:border-cyan-300 hover:text-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
+            >
+              Refresh
+            </button>
+          </div>
         </header>
 
         <section
@@ -107,15 +115,11 @@ const Admin: FC = () => {
             title="RAM"
             value={`${data.hardware.ram_available_gb.toFixed(1)} / ${data.hardware.ram_total_gb.toFixed(1)} GB`}
           />
-          <AdminCard
-            title="Quantization"
-            value={data.quantization}
-            subtitle={data.model.includes('gemma') ? 'Gemma runtime active' : data.model}
-          />
+          <AdminCard title="Quantization" value={`${data.quantization} · ${data.backend}`} subtitle={data.model_label} />
           <AdminCard
             title="Metal GPU"
             value={data.hardware.metal_gpu ? 'Active' : 'Inactive'}
-            subtitle={data.hardware.metal_gpu ? 'Acceleration enabled' : 'CPU fallback'}
+            subtitle={data.hardware.cuda_gpu ? 'CUDA detected' : 'CUDA not detected'}
           />
         </section>
 
@@ -134,8 +138,8 @@ const Admin: FC = () => {
         </section>
 
         <section className="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-xs text-slate-300">
-          Injection attempts blocked: {data.hallucination_guards_triggered} | Rate limit hits:{' '}
-          {data.rate_limit_hits} | Uptime: {formatUptime(data.uptime_seconds)}
+          Injection attempts blocked: {data.injection_blocks} | Rate limit hits: {data.rate_limit_hits} |
+          Uptime: {formatUptime(data.uptime_seconds)}
         </section>
       </div>
     </div>

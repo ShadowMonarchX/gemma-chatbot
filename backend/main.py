@@ -5,6 +5,7 @@ import logging
 import time
 import traceback
 import uuid
+from collections.abc import Callable
 from typing import Any, Generator
 
 from fastapi import FastAPI, HTTPException, Request
@@ -14,42 +15,35 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError as PydanticValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from .config import settings
 from .errors import AppError, InjectionError, ModelError, RateLimitError, ValidationError
 from .hardware import HardwareDetector, HardwareInfo
 from .metrics import MetricsCollector, metrics_collector
 from .model_manager import ModelManager
-from .quantization import QuantizationSelector, QuantizationStrategy
+from .quantization import LlamaCppQuantization, QuantizationSelector, QuantizationStrategy
 from .rate_limiter import RateLimiter, rate_limiter
 from .schemas import (
     AdminResponse,
     ChatRequest,
     ChatStreamEnvelope,
     HealthResponse,
+    ModelInfoResponse,
+    ModelsResponse,
+    SkillResponse,
 )
-from .skills import Skill, SkillRegistry, skill_registry
+from .skills import SkillRegistry, skill_registry
 from .validators import MessageValidator, message_validator
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
-    """Injects a request ID into request state and response headers."""
+    """Attach a UUID request ID to request state and response headers."""
 
-    def __init__(self, app: FastAPI) -> None:
-        """Initialize middleware with FastAPI app.
-
-        Args:
-            app: ASGI application.
-
-        Returns:
-            None.
-        """
-        super().__init__(app)
-
-    async def dispatch(self, request: Request, call_next: Any) -> Any:
-        """Attach request ID to every response.
+    async def dispatch(self, request: Request, call_next: Callable[..., Any]) -> Any:
+        """Create request ID context and invoke the next ASGI layer.
 
         Args:
-            request: Incoming request.
-            call_next: Next ASGI handler.
+            request: Incoming HTTP request.
+            call_next: Starlette middleware continuation callback.
 
         Returns:
             Any: Outgoing response.
@@ -62,28 +56,17 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Applies baseline security headers on every HTTP response."""
+    """Apply secure baseline headers on all responses."""
 
-    def __init__(self, app: FastAPI) -> None:
-        """Initialize middleware with FastAPI app.
-
-        Args:
-            app: ASGI application.
-
-        Returns:
-            None.
-        """
-        super().__init__(app)
-
-    async def dispatch(self, request: Request, call_next: Any) -> Any:
-        """Append security headers after request processing.
+    async def dispatch(self, request: Request, call_next: Callable[..., Any]) -> Any:
+        """Append security headers to response.
 
         Args:
             request: Incoming request.
-            call_next: Next ASGI handler.
+            call_next: Starlette middleware continuation callback.
 
         Returns:
-            Any: Response with hardened headers.
+            Any: Outgoing response with security headers.
         """
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -95,30 +78,30 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
-    """Rejects HTTP requests whose body exceeds a configured byte limit."""
+    """Reject request bodies larger than configured byte limit."""
 
-    def __init__(self, app: FastAPI, max_body_bytes: int = 64 * 1024) -> None:
-        """Initialize request size middleware.
+    def __init__(self, app: FastAPI, max_body_bytes: int) -> None:
+        """Initialize middleware request-size limit.
 
         Args:
-            app: ASGI application.
-            max_body_bytes: Maximum accepted payload size in bytes.
+            app: Wrapped ASGI app.
+            max_body_bytes: Allowed maximum bytes per request body.
 
         Returns:
             None.
         """
         super().__init__(app)
-        self._max_body_bytes = max_body_bytes
+        self._max_body_bytes: int = max_body_bytes
 
-    async def dispatch(self, request: Request, call_next: Any) -> Any:
-        """Validate content length before route execution.
+    async def dispatch(self, request: Request, call_next: Callable[..., Any]) -> Any:
+        """Enforce `Content-Length` guard before route execution.
 
         Args:
             request: Incoming request.
-            call_next: Next ASGI handler.
+            call_next: Starlette middleware continuation callback.
 
         Returns:
-            Any: Accepted response or 413 JSON response.
+            Any: 413 response when too large, otherwise next response.
         """
         content_length_header = request.headers.get("content-length", "")
         if content_length_header.isdigit() and int(content_length_header) > self._max_body_bytes:
@@ -132,22 +115,24 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
 
 
 class SSETokenStream:
-    """Iterator that converts generated tokens into escaped SSE event lines."""
+    """Convert generated tokens to escaped SSE events and record metrics."""
 
     def __init__(
         self,
         token_stream: Generator[str, None, None],
         metrics: MetricsCollector,
         skill_id: str,
+        model_id: str,
         started_at: float,
     ) -> None:
         """Initialize streaming iterator state.
 
         Args:
             token_stream: Model token generator.
-            metrics: Shared metrics collector.
+            metrics: Metrics collector instance.
             skill_id: Active skill identifier.
-            started_at: Request start timestamp from perf_counter.
+            model_id: Active model identifier.
+            started_at: Request start timestamp (`perf_counter`).
 
         Returns:
             None.
@@ -155,88 +140,141 @@ class SSETokenStream:
         self._token_stream = token_stream
         self._metrics = metrics
         self._skill_id = skill_id
+        self._model_id = model_id
         self._started_at = started_at
-        self._finished = False
+        self._is_finished = False
+        self._token_count = 0
+        self._first_token_ms: int = 0
 
     def __iter__(self) -> "SSETokenStream":
-        """Return self as an iterator.
+        """Return iterator instance.
 
         Returns:
-            SSETokenStream: Iterator instance.
+            SSETokenStream: Self.
         """
         return self
 
     def __next__(self) -> bytes:
-        """Return one SSE-formatted event chunk.
+        """Generate next SSE frame.
 
         Returns:
-            bytes: SSE `data:` line and delimiter.
+            bytes: Encoded `data: ...` SSE message.
         """
-        if self._finished:
+        if self._is_finished:
             raise StopIteration
 
         try:
             token = next(self._token_stream)
-            escaped = html.escape(str(token), quote=False)
+            if self._first_token_ms == 0:
+                self._first_token_ms = max(int((time.perf_counter() - self._started_at) * 1000), 1)
+
+            text = str(token)
+            self._token_count += max(len(text.split()), 1)
+            escaped = html.escape(text, quote=False)
             return f"data: {escaped}\n\n".encode("utf-8")
         except StopIteration:
             self._finalize(error=False)
-            self._finished = True
+            self._is_finished = True
             return b"data: [DONE]\n\n"
         except Exception:
             self._finalize(error=True)
-            self._finished = True
+            self._is_finished = True
             return b"data: [DONE]\n\n"
 
     def _finalize(self, error: bool) -> None:
-        """Finalize request metrics exactly once.
+        """Finalize one request metrics record.
 
         Args:
-            error: Whether stream ended with an error.
+            error: Whether stream ended in an error state.
 
         Returns:
             None.
         """
         elapsed_ms = int((time.perf_counter() - self._started_at) * 1000)
-        self._metrics.record_request(skill_id=self._skill_id, ms=elapsed_ms, error=error)
+        first_token_ms = self._first_token_ms if self._first_token_ms > 0 else elapsed_ms
+        self._metrics.record_request(
+            skill_id=self._skill_id,
+            model_id=self._model_id,
+            ms=max(elapsed_ms, 0),
+            error=error,
+            tokens_generated=self._token_count,
+            first_token_ms=max(first_token_ms, 0),
+        )
 
 
 class ChatbotApp:
-    """Builds and configures the local-first Gemma chatbot API."""
+    """Application container that builds and configures FastAPI chatbot API."""
 
     def __init__(self) -> None:
         """Initialize app dependencies, hardware detection, and model runtime."""
+        self.app = FastAPI(title="Gemma Local Chatbot", version="2.0.0")
         self.logger = logging.getLogger("gemma-chatbot")
         self.logger.setLevel(logging.INFO)
-        self.app = FastAPI(title="Gemma Local Chatbot", version="1.0.0")
-        self._started_at = time.time()
+
+        self._started_at: float = time.time()
+        self._startup_error: str | None = None
+        self._no_model_error_message = "No models found. Please install at least one model."
+        self._download_in_progress_message = "Model not available yet. Download in progress."
+        self._download_failed_message = "Model download failed. Check server logs for details."
 
         self.hardware_detector: HardwareDetector = HardwareDetector()
-        self.quantization_selector: QuantizationSelector = QuantizationSelector()
+        self.selector: QuantizationSelector = QuantizationSelector()
+        self.model_manager: ModelManager = ModelManager.get_instance()
         self.skills: SkillRegistry = skill_registry
         self.validator: MessageValidator = message_validator
-        self.rate_limiter: RateLimiter = rate_limiter
         self.metrics: MetricsCollector = metrics_collector
-        self.model_manager: ModelManager = ModelManager.get_instance()
+        self.rate_limiter: RateLimiter = rate_limiter
 
         self.hardware: HardwareInfo = self.hardware_detector.detect()
-        self.strategy: QuantizationStrategy = self.quantization_selector.select(self.hardware)
-        self.model_manager.load(self.strategy)
 
-        model_stats = self.model_manager.get_stats()
-        self.logger.info(
-            "startup chip=%s quantization=%s model_load_ms=%s warmup_tokens_per_sec=%s",
-            self.hardware.chip,
-            model_stats.get("quantization", "unknown"),
-            model_stats.get("model_load_ms", 0),
-            model_stats.get("last_tokens_per_sec", 0.0),
-        )
+        try:
+            strategy: QuantizationStrategy = self.selector.select(self.hardware)
+            self.model_manager.configure(hardware=self.hardware)
+            self.model_manager.load(strategy=strategy)
+            model_stats = self.model_manager.get_stats()
+            self.logger.info(
+                "startup chip=%s backend=%s quantization=%s model=%s load_ms=%s warmup_tps=%s",
+                self.hardware.chip,
+                model_stats.get("backend", "unknown"),
+                model_stats.get("quantization", "unknown"),
+                model_stats.get("model_id", "unknown"),
+                model_stats.get("model_load_ms", 0),
+                model_stats.get("last_tokens_per_sec", 0.0),
+            )
+        except ModelError as model_exc:
+            if self._is_model_unready_error(model_exc.message):
+                self._startup_error = model_exc.message
+                self.logger.warning("startup_model_unready message=%s", model_exc.message)
+            else:
+                self.logger.error("startup_failure model_error=%s", model_exc.message)
+                self.logger.error(traceback.format_exc())
+                try:
+                    fallback = LlamaCppQuantization(quant="Q4_K_M", n_gpu_layers=0)
+                    self.model_manager.configure(hardware=self.hardware)
+                    self.model_manager.load(strategy=fallback)
+                    self.logger.warning("startup_fallback backend=llama.cpp reason=%s", model_exc.message)
+                except Exception as fallback_exc:
+                    self._startup_error = f"{model_exc}; fallback={fallback_exc}"
+                    self.logger.error("startup_fallback_failure error=%s", str(fallback_exc))
+                    self.logger.error(traceback.format_exc())
+        except Exception as primary_exc:
+            self.logger.error("startup_failure primary_error=%s", str(primary_exc))
+            self.logger.error(traceback.format_exc())
+            try:
+                fallback = LlamaCppQuantization(quant="Q4_K_M", n_gpu_layers=0)
+                self.model_manager.configure(hardware=self.hardware)
+                self.model_manager.load(strategy=fallback)
+                self.logger.warning("startup_fallback backend=llama.cpp reason=%s", str(primary_exc))
+            except Exception as fallback_exc:
+                self._startup_error = f"{primary_exc}; fallback={fallback_exc}"
+                self.logger.error("startup_fallback_failure error=%s", str(fallback_exc))
+                self.logger.error(traceback.format_exc())
 
     def build(self) -> FastAPI:
-        """Build and return the configured FastAPI application.
+        """Register middleware, handlers, routes, and return FastAPI app.
 
         Returns:
-            FastAPI: Ready-to-run API application.
+            FastAPI: Configured application.
         """
         self._register_middleware()
         self._register_exception_handlers()
@@ -244,45 +282,51 @@ class ChatbotApp:
         return self.app
 
     def _register_routes(self) -> None:
-        """Register all HTTP routes on the FastAPI app.
-
-        Returns:
-            None.
-        """
+        """Register HTTP endpoints for chat, health, admin, skills, and models."""
         self.app.add_api_route(
             "/api/chat",
             self.chat,
             methods=["POST"],
             response_model=ChatStreamEnvelope,
             response_class=StreamingResponse,
+            summary="Stream chat response tokens over SSE",
         )
         self.app.add_api_route(
             "/api/health",
             self.health,
             methods=["GET"],
             response_model=HealthResponse,
+            summary="Read service health",
         )
         self.app.add_api_route(
             "/api/admin",
             self.admin,
             methods=["GET"],
             response_model=AdminResponse,
+            summary="Read service admin metrics",
         )
         self.app.add_api_route(
             "/api/skills",
             self.list_skills,
             methods=["GET"],
-            response_model=list[Skill],
+            response_model=list[SkillResponse],
+            summary="List available skills",
+        )
+        self.app.add_api_route(
+            "/api/models",
+            self.list_models,
+            methods=["GET"],
+            response_model=ModelsResponse,
+            summary="List available model profiles",
         )
 
     def _register_middleware(self) -> None:
-        """Register CORS, size guard, and security middleware.
-
-        Returns:
-            None.
-        """
+        """Attach request ID, body limit, security headers, and strict CORS."""
         self.app.add_middleware(RequestContextMiddleware)
-        self.app.add_middleware(BodySizeLimitMiddleware, max_body_bytes=64 * 1024)
+        self.app.add_middleware(
+            BodySizeLimitMiddleware,
+            max_body_bytes=settings.request_body_limit_bytes,
+        )
         self.app.add_middleware(SecurityHeadersMiddleware)
         self.app.add_middleware(
             CORSMiddleware,
@@ -293,20 +337,43 @@ class ChatbotApp:
         )
 
     def _register_exception_handlers(self) -> None:
-        """Register consistent exception handlers for API safety.
-
-        Returns:
-            None.
-        """
+        """Install consistent exception translation and safe error envelopes."""
 
         @self.app.exception_handler(AppError)
         async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
             request_id = self._request_id(request)
             self.logger.error("app_error request_id=%s detail=%s", request_id, exc.log_detail)
+            if isinstance(exc, ModelError) and self._is_model_unready_error(exc.message):
+                payload = self._model_unready_payload(message=exc.message)
+                payload["request_id"] = request_id
+                return JSONResponse(
+                    status_code=503,
+                    content=payload,
+                    headers={"X-Request-Id": request_id},
+                )
             return JSONResponse(
                 status_code=exc.status_code,
                 content={"error": exc.message, "request_id": request_id},
                 headers={"X-Request-Id": request_id},
+            )
+
+        @self.app.exception_handler(HTTPException)
+        async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+            request_id = self._request_id(request)
+            if isinstance(exc.detail, dict):
+                content = dict(exc.detail)
+                content.setdefault("error", "Request failed")
+            else:
+                detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
+                content = {"error": detail}
+            content["request_id"] = request_id
+            headers = {"X-Request-Id": request_id}
+            if exc.headers:
+                headers.update(exc.headers)
+            return JSONResponse(
+                status_code=exc.status_code,
+                content=content,
+                headers=headers,
             )
 
         @self.app.exception_handler(RequestValidationError)
@@ -316,7 +383,11 @@ class ChatbotApp:
             request_id = self._request_id(request)
             return JSONResponse(
                 status_code=422,
-                content={"error": "Validation error", "details": exc.errors(), "request_id": request_id},
+                content={
+                    "error": "Validation error",
+                    "details": exc.errors(),
+                    "request_id": request_id,
+                },
                 headers={"X-Request-Id": request_id},
             )
 
@@ -327,14 +398,18 @@ class ChatbotApp:
             request_id = self._request_id(request)
             return JSONResponse(
                 status_code=422,
-                content={"error": "Validation error", "details": exc.errors(), "request_id": request_id},
+                content={
+                    "error": "Validation error",
+                    "details": exc.errors(),
+                    "request_id": request_id,
+                },
                 headers={"X-Request-Id": request_id},
             )
 
         @self.app.exception_handler(Exception)
         async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
             request_id = self._request_id(request)
-            self.logger.error("request_id=%s unhandled_exception=%s", request_id, str(exc))
+            self.logger.error("unhandled_exception request_id=%s error=%s", request_id, str(exc))
             self.logger.error(traceback.format_exc())
             return JSONResponse(
                 status_code=500,
@@ -342,40 +417,46 @@ class ChatbotApp:
                 headers={"X-Request-Id": request_id},
             )
 
-    async def chat(self, request: Request, payload: ChatRequest) -> StreamingResponse:
-        """Handle SSE chat generation requests.
+    async def chat(self, request: Request, payload: ChatRequest) -> StreamingResponse | JSONResponse:
+        """Validate request and stream model output tokens as SSE.
 
         Args:
             request: Incoming HTTP request.
-            payload: Strict chat payload.
+            payload: Strict chat request body.
 
         Returns:
-            StreamingResponse: SSE token stream.
+            StreamingResponse: `text/event-stream` response.
         """
         request_id = self._request_id(request)
         client_id = self._client_ip(request)
 
         try:
             self.rate_limiter.check(client_id)
-        except RateLimitError as exc:
+        except RateLimitError:
             self.metrics.record_rate_limit_hit()
             retry_after = self.rate_limiter.get_retry_after(client_id)
             raise HTTPException(
                 status_code=429,
-                detail=exc.message,
+                detail="Rate limit exceeded",
                 headers={"Retry-After": str(retry_after), "X-Request-Id": request_id},
-            ) from exc
+            )
+
+        if payload.stream is not True:
+            raise HTTPException(status_code=422, detail="Only streaming mode is supported")
 
         try:
             skill = self.skills.get(payload.skill_id)
         except ValidationError as exc:
             raise HTTPException(status_code=422, detail=exc.message) from exc
 
+        if not self.model_manager.is_model_known(payload.model_id):
+            raise HTTPException(status_code=422, detail="Unknown model ID")
+
         raw_messages = [message.model_dump() for message in payload.messages]
         try:
             sanitized_messages = self.validator.validate_messages(raw_messages)
         except InjectionError as exc:
-            self.metrics.record_hallucination_guard()
+            self.metrics.record_injection_block()
             raise HTTPException(status_code=400, detail=exc.message) from exc
         except ValidationError as exc:
             raise HTTPException(status_code=422, detail=exc.message) from exc
@@ -386,98 +467,138 @@ class ChatbotApp:
                 messages=sanitized_messages,
                 system=skill.system_prompt,
                 skill=payload.skill_id,
+                model_id=payload.model_id,
             )
-            iterator = SSETokenStream(
-                token_stream=token_stream,
-                metrics=self.metrics,
-                skill_id=payload.skill_id,
-                started_at=started,
-            )
-            elapsed_ms = int((time.perf_counter() - started) * 1000)
-            headers = {
-                "X-Response-Ms": str(elapsed_ms),
-                "X-Request-Id": request_id,
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            }
-            return StreamingResponse(iterator, media_type="text/event-stream", headers=headers)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=exc.message) from exc
         except ModelError as exc:
-            elapsed_ms = int((time.perf_counter() - started) * 1000)
-            self.metrics.record_request(skill_id=payload.skill_id, ms=elapsed_ms, error=True)
-            raise HTTPException(status_code=500, detail="Model generation failed") from exc
+            self.metrics.record_request(
+                skill_id=payload.skill_id,
+                model_id=payload.model_id,
+                ms=int((time.perf_counter() - started) * 1000),
+                error=True,
+                tokens_generated=0,
+                first_token_ms=0,
+            )
+            if self._is_model_unready_error(exc.message):
+                payload_body = self._model_unready_payload(message=exc.message)
+                payload_body["request_id"] = request_id
+                return JSONResponse(
+                    status_code=503,
+                    content=payload_body,
+                    headers={"X-Request-Id": request_id},
+                )
+            raise HTTPException(status_code=500, detail=exc.message) from exc
+
+        iterator = SSETokenStream(
+            token_stream=token_stream,
+            metrics=self.metrics,
+            skill_id=payload.skill_id,
+            model_id=payload.model_id,
+            started_at=started,
+        )
+
+        headers = {
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Request-Id": request_id,
+            "X-Response-Ms": "0",
+        }
+        return StreamingResponse(iterator, media_type="text/event-stream", headers=headers)
 
     async def health(self, request: Request) -> HealthResponse:
-        """Return health status and model runtime information.
+        """Return high-level health and model runtime snapshot.
 
         Args:
             request: Incoming request.
 
         Returns:
-            HealthResponse: Current health payload.
+            HealthResponse: Health payload.
         """
         _ = request
-        model_stats = self.model_manager.get_stats()
-        metrics_summary = self.metrics.get_summary()
-        self.metrics.set_avg_tokens_per_sec(float(model_stats.get("avg_tokens_per_sec", 0.0)))
+        stats = self.model_manager.get_stats()
+        metrics = self.metrics.get_summary()
+        status = "ok" if self._startup_error is None else "degraded"
 
         return HealthResponse(
-            status="ok",
-            model=str(model_stats.get("model", "google/gemma-4-2b-it")),
-            quantization=str(model_stats.get("quantization", "unknown")),
+            status=status,
+            model_id=str(stats.get("model_id", "")),
+            model_label=str(stats.get("model_label", "")),
+            backend=str(stats.get("backend", "")),
+            quantization=str(stats.get("quantization", "")),
             hardware=self.hardware,
-            model_load_ms=int(model_stats.get("model_load_ms", 0)),
-            avg_tokens_per_sec=float(model_stats.get("avg_tokens_per_sec", 0.0)),
-            uptime_seconds=int(metrics_summary.get("uptime_seconds", int(time.time() - self._started_at))),
-            last_request_ms=int(metrics_summary.get("last_request_ms", 0)),
+            model_load_ms=int(stats.get("model_load_ms", 0)),
+            avg_tokens_per_sec=float(stats.get("avg_tokens_per_sec", 0.0)),
+            last_tokens_per_sec=float(stats.get("last_tokens_per_sec", 0.0)),
+            uptime_seconds=int(metrics.get("uptime_seconds", int(time.time() - self._started_at))),
+            last_request_ms=int(metrics.get("last_request_ms", 0)),
         )
 
     async def admin(self, request: Request) -> AdminResponse:
-        """Return extended admin metrics for local monitoring.
+        """Return full operational and security metrics snapshot.
 
         Args:
             request: Incoming request.
 
         Returns:
-            AdminResponse: Extended health + metrics payload.
+            AdminResponse: Admin payload.
         """
-        _ = request
         health_payload = await self.health(request)
-        metrics_summary = self.metrics.get_summary()
+        summary = self.metrics.get_summary()
 
         return AdminResponse(
             status=health_payload.status,
-            model=health_payload.model,
+            model_id=health_payload.model_id,
+            model_label=health_payload.model_label,
+            backend=health_payload.backend,
             quantization=health_payload.quantization,
             hardware=health_payload.hardware,
             model_load_ms=health_payload.model_load_ms,
             avg_tokens_per_sec=health_payload.avg_tokens_per_sec,
+            last_tokens_per_sec=health_payload.last_tokens_per_sec,
             uptime_seconds=health_payload.uptime_seconds,
             last_request_ms=health_payload.last_request_ms,
-            total_requests=int(metrics_summary.get("total_requests", 0)),
-            errors=int(metrics_summary.get("errors", 0)),
-            avg_response_ms=float(metrics_summary.get("avg_response_ms", 0.0)),
-            requests_per_minute=float(metrics_summary.get("requests_per_minute", 0.0)),
-            skill_usage=dict(metrics_summary.get("skill_usage", {})),
-            hallucination_guards_triggered=int(
-                metrics_summary.get("hallucination_guards_triggered", 0)
-            ),
-            rate_limit_hits=int(metrics_summary.get("rate_limit_hits", 0)),
+            total_requests=int(summary.get("total_requests", 0)),
+            errors=int(summary.get("errors", 0)),
+            avg_response_ms=float(summary.get("avg_response_ms", 0.0)),
+            avg_first_token_ms=float(summary.get("avg_first_token_ms", 0.0)),
+            requests_per_minute=float(summary.get("requests_per_minute", 0.0)),
+            skill_usage=dict(summary.get("skill_usage", {})),
+            model_usage=dict(summary.get("model_usage", {})),
+            injection_blocks=int(summary.get("injection_blocks", 0)),
+            rate_limit_hits=int(summary.get("rate_limit_hits", 0)),
         )
 
-    async def list_skills(self, request: Request) -> list[Skill]:
-        """Return supported skill definitions.
+    async def list_skills(self, request: Request) -> list[SkillResponse]:
+        """Return available skill definitions.
 
         Args:
             request: Incoming request.
 
         Returns:
-            list[Skill]: List of available skills.
+            list[SkillResponse]: Registered skills.
         """
         _ = request
-        return self.skills.all()
+        return [SkillResponse(**skill.model_dump()) for skill in self.skills.all()]
+
+    async def list_models(self, request: Request) -> ModelsResponse:
+        """Return model catalog for runtime model selector.
+
+        Args:
+            request: Incoming request.
+
+        Returns:
+            ModelsResponse: Model metadata plus active model.
+        """
+        _ = request
+        model_entries = [ModelInfoResponse(**entry) for entry in self.model_manager.list_models()]
+        return ModelsResponse(
+            active_model_id=self.model_manager.get_active_model_id(),
+            models=model_entries,
+        )
 
     def _request_id(self, request: Request) -> str:
-        """Read request ID from state or generate a fallback UUID.
+        """Resolve request UUID from request state.
 
         Args:
             request: Incoming request.
@@ -486,22 +607,40 @@ class ChatbotApp:
             str: Request identifier.
         """
         request_id = getattr(request.state, "request_id", "")
-        if not request_id:
-            return str(uuid.uuid4())
-        return str(request_id)
+        if request_id:
+            return str(request_id)
+        return str(uuid.uuid4())
 
     def _client_ip(self, request: Request) -> str:
-        """Resolve best-effort client identifier from request metadata.
+        """Resolve best-effort client identifier for rate limiting.
 
         Args:
             request: Incoming request.
 
         Returns:
-            str: Client IP or localhost placeholder.
+            str: Client IP string.
         """
         if request.client and request.client.host:
             return request.client.host
         return "127.0.0.1"
+
+    def _is_model_unready_error(self, message: str) -> bool:
+        """Return whether model startup/download is still pending or failed."""
+        normalized = message.strip()
+        if normalized in {
+            self._no_model_error_message,
+            self._download_in_progress_message,
+            self._download_failed_message,
+        }:
+            return True
+        return normalized.lower().startswith("model download failed")
+
+    def _model_unready_payload(self, message: str) -> dict[str, Any]:
+        """Return user-friendly payload for model download/startup states."""
+        normalized = message.strip()
+        if normalized == self._no_model_error_message:
+            return {"error": self._download_in_progress_message}
+        return {"error": normalized}
 
 
 chatbot_app = ChatbotApp()

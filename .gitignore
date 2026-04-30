@@ -38,10 +38,18 @@ pnpm-debug.log*
 
 # Local env files
 .env
-.env.*
 
 # Local model artifacts (large binaries)
 *.gguf
 models/
 backend/models/
+
+
+# IDE files
+.idea/
+.vscode/
+uvconfig.toml
+uv.lock
+pyright.toml
+pyproject.toml
 

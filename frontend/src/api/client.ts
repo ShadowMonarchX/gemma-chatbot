@@ -14,8 +14,23 @@ export class ApiError extends Error {
 export class ApiClient {
   private baseUrl: string;
 
-  public constructor(baseUrl: string = '/api') {
+  public constructor(baseUrl: string = ApiClient.resolveBaseUrl()) {
     this.baseUrl = baseUrl;
+  }
+
+  private static resolveBaseUrl(): string {
+    const envBase =
+      typeof import.meta !== 'undefined' &&
+      import.meta.env &&
+      typeof import.meta.env.VITE_API_BASE_URL === 'string'
+        ? import.meta.env.VITE_API_BASE_URL
+        : '';
+
+    if (envBase.trim().length > 0) {
+      return envBase.replace(/\/+$/, '');
+    }
+
+    return 'http://127.0.0.1:8000/api';
   }
 
   public async apiCall<T>(url: string, options: RequestInit = {}): Promise<T> {
@@ -35,8 +50,8 @@ export class ApiClient {
       return undefined as T;
     }
 
-    const data = (await response.json()) as T;
-    return data;
+    const payload = (await response.json()) as T;
+    return payload;
   }
 
   public async apiStream(url: string, options: RequestInit = {}): Promise<Response> {
@@ -64,8 +79,12 @@ export class ApiClient {
     let message = `Request failed with status ${response.status}`;
 
     try {
-      const payload = (await response.json()) as { detail?: string; error?: string; message?: string };
-      message = payload.detail ?? payload.error ?? payload.message ?? message;
+      const payload = (await response.json()) as {
+        detail?: string;
+        error?: string;
+        message?: string;
+      };
+      message = payload.error ?? payload.detail ?? payload.message ?? message;
     } catch {
       message = response.statusText || message;
     }

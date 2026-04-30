@@ -8,14 +8,14 @@ from .errors import InjectionError, ValidationError
 
 
 class MessageValidator:
-    """Validates, sanitizes, and guards user messages against prompt injection."""
+    """Validates message payloads, sanitizes text, and blocks injection attempts."""
 
     def __init__(self) -> None:
-        """Initialize sanitizer and prompt injection patterns."""
+        """Initialize validation constraints and patterns."""
         self._max_message_chars: int = 4096
         self._max_history_messages: int = 20
-        self._direction_overrides = re.compile(r"[\u202A-\u202E\u2066-\u2069]")
-        self._control_chars = re.compile(r"[\x00-\x1F\x7F]")
+        self._direction_overrides_pattern = re.compile(r"[\u202A-\u202E\u2066-\u2069]")
+        self._control_pattern = re.compile(r"[\x00-\x1F\x7F]")
         self._injection_patterns: list[str] = [
             "ignore previous instructions",
             "disregard your system prompt",
@@ -30,13 +30,13 @@ class MessageValidator:
         ]
 
     def validate_messages(self, messages: list[dict]) -> list[dict]:
-        """Validate message structure, sanitize content, and block injections.
+        """Validate and sanitize message history.
 
         Args:
-            messages: Raw message list from validated request models.
+            messages: Raw message dictionaries.
 
         Returns:
-            list[dict]: Sanitized message list.
+            list[dict]: Sanitized messages.
         """
         if not 1 <= len(messages) <= self._max_history_messages:
             raise ValidationError(
@@ -45,11 +45,11 @@ class MessageValidator:
                 log_detail=f"message_count={len(messages)}",
             )
 
-        sanitized_messages: list[dict] = []
+        validated: list[dict] = []
         for message in messages:
             role = str(message.get("role", "")).strip()
-            content = str(message.get("content", ""))
-            sanitized_content = self.sanitize_input(content)
+            raw_content = str(message.get("content", ""))
+            content = self.sanitize_input(raw_content)
 
             if role not in {"user", "assistant"}:
                 raise ValidationError(
@@ -58,63 +58,63 @@ class MessageValidator:
                     log_detail=f"invalid_role={role}",
                 )
 
-            if not sanitized_content or len(sanitized_content) > self._max_message_chars:
+            if not content or len(content) > self._max_message_chars:
                 raise ValidationError(
                     message="Invalid message length",
                     status_code=422,
-                    log_detail=f"message_length={len(sanitized_content)}",
+                    log_detail=f"message_length={len(content)}",
                 )
 
-            if self.check_injection(sanitized_content):
-                self._log_injection_attempt(sanitized_content)
+            if self.check_injection(content):
+                self._log_injection_attempt(content)
                 raise InjectionError(
                     message="Input rejected: disallowed pattern",
                     status_code=400,
-                    log_detail="prompt injection pattern matched",
+                    log_detail="prompt_injection_pattern",
                 )
 
-            sanitized_messages.append({"role": role, "content": sanitized_content})
+            validated.append({"role": role, "content": content})
 
-        return sanitized_messages
+        return validated
 
     def sanitize_input(self, text: str) -> str:
-        """Remove null bytes, control chars, and direction overrides.
+        """Remove null bytes, ASCII control chars, and directional override marks.
 
         Args:
-            text: Raw input text.
+            text: Raw text.
 
         Returns:
-            str: Sanitized plain text.
+            str: Sanitized text.
         """
-        without_overrides = self._direction_overrides.sub("", text)
-        without_controls = self._control_chars.sub("", without_overrides)
+        without_directional = self._direction_overrides_pattern.sub("", text)
+        without_controls = self._control_pattern.sub("", without_directional)
         return without_controls.strip()
 
     def check_injection(self, text: str) -> bool:
-        """Detect known prompt-injection strings.
+        """Return whether text contains a known injection phrase.
 
         Args:
-            text: Sanitized message text.
+            text: Sanitized text.
 
         Returns:
-            bool: True if an injection pattern is present.
+            bool: True if a disallowed phrase is present.
         """
         lowered = text.lower()
         return any(pattern in lowered for pattern in self._injection_patterns)
 
     def _log_injection_attempt(self, text: str) -> None:
-        """Log sanitized injection attempts to stderr with timestamp.
+        """Write a sanitized injection log line to stderr.
 
         Args:
-            text: Sanitized message text.
+            text: Sanitized text.
 
         Returns:
             None.
         """
         timestamp = dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
-        safe_preview = text[:240]
+        preview = text[:240]
         print(
-            f"[{timestamp}] injection_attempt_rejected preview={safe_preview!r}",
+            f"[{timestamp}] injection_attempt_rejected preview={preview!r}",
             file=sys.stderr,
         )
 
