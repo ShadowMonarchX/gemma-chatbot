@@ -1,89 +1,79 @@
 # Gemma Local Chatbot
 
-A production-quality, local-first AI chatbot with:
+Production-grade, local-first AI chatbot with runtime model switching and hardware-aware inference routing.
 
-- **Backend:** FastAPI + Pydantic v2 + class-based OOP architecture
-- **Model runtime:** Gemma 4 2B via `mlx-lm` (Apple Silicon) or `llama-cpp-python` (Intel)
-- **Frontend:** React 18 + TypeScript + Tailwind CSS v3 + Zustand
-- **Streaming:** Server-Sent Events (SSE) token streaming
-- **Testing:** pytest + pytest-asyncio + httpx (backend), Vitest + RTL (frontend)
-- **Auth:** None (local-only)
+## Highlights
+
+- Local-only execution (no external APIs)
+- Runtime model switching: `gemma-2b`, `gemma-e2b`, `gemma-e4b`
+- Hardware auto-detection (Apple Silicon, Intel CPU, CUDA)
+- Backend auto-selection:
+  - Apple Silicon + Metal: `mlx-lm`
+  - CUDA / CPU fallback: `llama-cpp-python`
+- Streaming chat over SSE (`text/event-stream`)
+- Strict security controls (validation, injection guard, rate limits, secure headers)
+- Full React admin dashboard for runtime metrics
 
 ## Project Structure
 
 ```text
 gemma-chatbot/
 ├── backend/
-│   ├── main.py
-│   ├── hardware.py
-│   ├── quantization.py
-│   ├── model_manager.py
-│   ├── skills.py
-│   ├── validators.py
-│   ├── rate_limiter.py
-│   ├── metrics.py
-│   ├── schemas.py
+│   ├── config.py
 │   ├── errors.py
-│   └── requirements.txt
+│   ├── hardware.py
+│   ├── main.py
+│   ├── metrics.py
+│   ├── model_manager.py
+│   ├── quantization.py
+│   ├── rate_limiter.py
+│   ├── requirements.txt
+│   ├── schemas.py
+│   ├── skills.py
+│   └── validators.py
 ├── frontend/
-│   ├── src/
-│   │   ├── main.tsx
-│   │   ├── App.tsx
-│   │   ├── pages/
-│   │   │   ├── Chat.tsx
-│   │   │   └── Admin.tsx
-│   │   ├── components/
-│   │   │   ├── MessageList.tsx
-│   │   │   ├── MessageBubble.tsx
-│   │   │   ├── TypingIndicator.tsx
-│   │   │   ├── SkillToggle.tsx
-│   │   │   ├── AdminCard.tsx
-│   │   │   ├── SkillUsageBar.tsx
-│   │   │   ├── Toast.tsx
-│   │   │   └── ErrorBoundary.tsx
-│   │   ├── stores/
-│   │   │   ├── chatStore.ts
-│   │   │   └── adminStore.ts
-│   │   ├── api/
-│   │   │   ├── client.ts
-│   │   │   └── types.ts
-│   │   └── __tests__/
-│   │       ├── Chat.test.tsx
-│   │       └── Admin.test.tsx
 │   ├── package.json
-│   ├── vite.config.ts
 │   ├── tailwind.config.ts
-│   └── tsconfig.json
+│   ├── tsconfig.json
+│   ├── vite.config.ts
+│   └── src/
+│       ├── App.tsx
+│       ├── main.tsx
+│       ├── api/
+│       ├── components/
+│       ├── pages/
+│       ├── stores/
+│       └── __tests__/
 ├── tests/
 │   ├── conftest.py
 │   ├── test_api.py
 │   └── test_classes.py
+├── .env
+├── .env.example
 └── README.md
+```
+
+## Environment
+
+Copy `.env.example` to `.env` and adjust values:
+
+```env
+MODEL_PATH=backend/models
+DEFAULT_MODEL=gemma-2b
+MAX_TOKENS=512
+REQUEST_BODY_LIMIT_BYTES=65536
+RATE_LIMIT_PER_MINUTE=30
+SKIP_MODEL_LOAD=false
 ```
 
 ## Backend Setup
 
-1. Create and activate a Python 3.11 environment.
-2. Install dependencies:
-
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r backend/requirements.txt
+uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
 ```
-
-3. Run API server:
-
-```bash
-uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-### Model Runtime Notes
-
-- **Apple Silicon:** `MLXQuantization` is selected automatically.
-  - `>= 16 GB RAM` -> `INT4`
-  - `8-15 GB RAM` -> `INT8`
-- **Intel / non-Metal:** `LlamaCppQuantization` with `Q4_K_M` GGUF path `models/gemma-4-2b-it.Q4_K_M.gguf`
-
-Set `GEMMA_SKIP_MODEL_LOAD=1` for local CI/test runs without loading weights.
 
 ## Frontend Setup
 
@@ -93,7 +83,7 @@ npm install
 npm run dev
 ```
 
-Frontend dev server runs on `http://127.0.0.1:5173`.
+Frontend runs at `http://127.0.0.1:5173`.
 
 ## API Endpoints
 
@@ -101,37 +91,67 @@ Frontend dev server runs on `http://127.0.0.1:5173`.
 - `GET /api/health`
 - `GET /api/admin`
 - `GET /api/skills`
+- `GET /api/models`
 
-## Security Controls Implemented
+### Chat Request Example
 
-- Strict Pydantic v2 request validation
-- Message sanitization (null bytes, control chars, Unicode direction overrides)
-- Prompt injection pattern blocking (`HTTP 400`)
-- In-memory IP rate limiting (30 req/min, sliding window)
-- Request body size limit (64 KB)
-- Restrictive CORS for local frontend origins
-- SSE output token escaping
-- Safe error envelopes with `request_id`
-- Security headers on every response
-
-## Running Tests
-
-### Backend
-
-```bash
-pytest tests/ -v --asyncio-mode=auto
+```json
+{
+  "messages": [{ "role": "user", "content": "Hello" }],
+  "skill_id": "chat",
+  "model_id": "gemma-2b",
+  "stream": true
+}
 ```
 
-### Frontend
+## Hardware Routing Logic
+
+- Apple Silicon + Metal
+  - Uses `MLXQuantization`
+  - `INT4` when RAM >= 16 GB
+  - `INT8` when RAM is 8-15 GB
+- CUDA available (non-Apple path)
+  - Uses `LlamaCppQuantization` with GPU offload
+- Intel / CPU only
+  - Uses `LlamaCppQuantization` (`Q4_K_M`)
+
+## Security Controls
+
+- Pydantic v2 strict request validation
+- Message size: max 4096 chars
+- History size: max 20 messages
+- Input sanitization (control chars, null bytes, direction overrides)
+- Prompt injection detection and rejection (`HTTP 400`)
+- Rate limiting: 30 requests/min/IP (`HTTP 429` + `Retry-After`)
+- Request body limit: 64 KB (`HTTP 413`)
+- SSE token escaping (`html.escape`)
+- CORS restricted to local Vite origins
+- Hardened response headers
+- No stack traces leaked to clients
+
+## Testing
+
+Backend:
+
+```bash
+PYTHONPATH=. uv run pytest tests/ -v --asyncio-mode=auto
+```
+
+Frontend:
 
 ```bash
 cd frontend
 npx vitest run
 ```
 
-## Local Usage
+Build frontend:
 
-1. Start backend (`uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000`).
-2. Start frontend (`npm run dev`).
-3. Open `http://127.0.0.1:5173/chat`.
-4. Open `http://127.0.0.1:5173/admin` for runtime metrics.
+```bash
+cd frontend
+npm run build
+```
+
+## Notes
+
+- Place GGUF files under `backend/models/` for llama.cpp runtime.
+- `SKIP_MODEL_LOAD=true` can be used in constrained environments to boot without loading model weights.

@@ -45,3 +45,12 @@ pnpm-debug.log*
 models/
 backend/models/
 
+
+# IDE files
+.idea/
+.vscode/
+uvconfig.toml
+uv.lock
+pyright.toml
+pyproject.toml
+

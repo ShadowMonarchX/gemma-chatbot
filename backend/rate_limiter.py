@@ -3,18 +3,19 @@ from __future__ import annotations
 import time
 from collections import defaultdict, deque
 
+from .config import settings
 from .errors import RateLimitError
 
 
 class RateLimiter:
-    """In-memory sliding-window rate limiter keyed by client IP."""
+    """In-memory sliding-window limiter keyed by client identifier."""
 
     def __init__(self, max_requests: int = 30, window_seconds: int = 60) -> None:
-        """Initialize rate limiter settings.
+        """Initialize limiter thresholds.
 
         Args:
-            max_requests: Maximum requests allowed in window.
-            window_seconds: Sliding window duration in seconds.
+            max_requests: Allowed requests per window.
+            window_seconds: Sliding window size in seconds.
 
         Returns:
             None.
@@ -26,7 +27,7 @@ class RateLimiter:
         self._hits: int = 0
 
     def check(self, client_id: str) -> None:
-        """Check whether a client can make another request.
+        """Allow or reject a request for a client.
 
         Args:
             client_id: Client key, usually remote IP.
@@ -36,8 +37,9 @@ class RateLimiter:
         """
         now = time.time()
         queue = self._events[client_id]
-        threshold = now - self._window_seconds
-        while queue and queue[0] <= threshold:
+        cutoff = now - self._window_seconds
+
+        while queue and queue[0] <= cutoff:
             queue.popleft()
 
         if len(queue) >= self._max_requests:
@@ -47,33 +49,33 @@ class RateLimiter:
             raise RateLimitError(
                 message="Rate limit exceeded",
                 status_code=429,
-                log_detail=f"retry_after={retry_after}",
+                log_detail=f"client={client_id} retry_after={retry_after}",
             )
 
         queue.append(now)
         self._retry_after[client_id] = 0
 
     def get_retry_after(self, client_id: str) -> int:
-        """Return retry-after seconds for a throttled client.
+        """Get retry-after seconds for a client.
 
         Args:
             client_id: Client key.
 
         Returns:
-            int: Retry duration in seconds.
+            int: Retry-after seconds.
         """
         return int(self._retry_after.get(client_id, 0))
 
     def get_hits(self) -> int:
-        """Return total number of rate-limit denials.
+        """Return total number of denied requests.
 
         Returns:
-            int: Total denied request count.
+            int: Throttle hit count.
         """
         return self._hits
 
     def reset(self) -> None:
-        """Reset all in-memory limiter state.
+        """Reset limiter counters and client windows.
 
         Returns:
             None.
@@ -83,4 +85,4 @@ class RateLimiter:
         self._hits = 0
 
 
-rate_limiter = RateLimiter()
+rate_limiter = RateLimiter(max_requests=settings.rate_limit_per_minute, window_seconds=60)

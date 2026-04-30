@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState, type FC, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FC, type KeyboardEvent } from 'react';
+import { Link } from 'react-router-dom';
 
 import MessageList from '../components/MessageList';
 import SkillToggle from '../components/SkillToggle';
@@ -7,13 +8,19 @@ import { useChatStore, type SkillOption } from '../stores/chatStore';
 const Chat: FC = () => {
   const messages = useChatStore((state) => state.messages);
   const skill = useChatStore((state) => state.skill);
+  const modelId = useChatStore((state) => state.modelId);
+  const models = useChatStore((state) => state.models);
+  const modelsLoading = useChatStore((state) => state.modelsLoading);
   const isStreaming = useChatStore((state) => state.isStreaming);
   const inputError = useChatStore((state) => state.inputError);
-
   const actions = useChatStore((state) => state.actions);
 
   const [draft, setDraft] = useState<string>('');
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    void actions.initializeModels();
+  }, [actions]);
 
   const isEmpty = useMemo(() => draft.trim().length === 0, [draft]);
 
@@ -60,12 +67,38 @@ const Chat: FC = () => {
 
   return (
     <div className="flex h-screen flex-col bg-[radial-gradient(circle_at_20%_0%,rgba(56,189,248,0.15),transparent_45%),radial-gradient(circle_at_80%_100%,rgba(16,185,129,0.15),transparent_40%),#020617] text-slate-100 transition-all duration-300">
-      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-4 md:px-6">
+      <header className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4 md:px-6">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">Local First AI</p>
           <h1 className="text-xl font-bold">Gemma Companion</h1>
         </div>
-        <SkillToggle skill={skill.id} onChange={handleSkillChange} />
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            to="/admin"
+            className="rounded-lg border border-slate-500 px-3 py-2 text-xs font-semibold text-slate-200 transition duration-150 ease-in-out hover:border-cyan-300 hover:text-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
+          >
+            Admin
+          </Link>
+          <SkillToggle skill={skill.id} onChange={handleSkillChange} />
+          <label className="sr-only" htmlFor="model-select">
+            Select model
+          </label>
+          <select
+            id="model-select"
+            aria-label="Select model"
+            value={modelId}
+            disabled={isStreaming || modelsLoading}
+            onChange={(event) => actions.setModel(event.target.value as 'gemma-2b' | 'gemma-e2b' | 'gemma-e4b')}
+            className="rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {models.map((model) => (
+              <option key={model.id} value={model.id} disabled={!model.available}>
+                {model.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col overflow-hidden rounded-t-3xl border border-slate-700/80 bg-slate-900/60 px-3 pb-0 pt-4 backdrop-blur md:px-6">
@@ -122,7 +155,6 @@ const Chat: FC = () => {
           </div>
         </div>
       </main>
-
     </div>
   );
 };

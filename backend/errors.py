@@ -2,15 +2,15 @@ from __future__ import annotations
 
 
 class AppError(Exception):
-    """Base exception for controlled application errors."""
+    """Base exception for controlled application failures."""
 
     def __init__(self, message: str, status_code: int, log_detail: str = "") -> None:
-        """Create an application error.
+        """Create an application exception.
 
         Args:
-            message: Safe message that can be returned to API clients.
-            status_code: HTTP status code associated with this error.
-            log_detail: Internal detail for server-side logs.
+            message: Safe message for API response bodies.
+            status_code: HTTP status code associated with the error.
+            log_detail: Internal diagnostics safe for server logs.
 
         Returns:
             None.
@@ -21,17 +21,21 @@ class AppError(Exception):
         super().__init__(message)
 
 
+class ConfigurationError(AppError):
+    """Raised when runtime configuration is invalid."""
+
+
 class ModelError(AppError):
-    """Raised when model loading or token generation fails."""
+    """Raised when model loading or generation fails."""
 
 
 class ValidationError(AppError):
-    """Raised when validated input violates application rules."""
+    """Raised when request validation fails business constraints."""
 
 
 class RateLimitError(AppError):
-    """Raised when the request rate exceeds the configured threshold."""
+    """Raised when the request rate exceeds configured limits."""
 
 
 class InjectionError(AppError):
-    """Raised when a potential prompt-injection pattern is detected."""
+    """Raised when prompt-injection patterns are detected in user input."""

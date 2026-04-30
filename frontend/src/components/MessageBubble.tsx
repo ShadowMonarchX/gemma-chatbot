@@ -27,6 +27,27 @@ declare global {
   }
 }
 
+class MessageLabelFormatter {
+  public skillLabel(skillId: string | undefined): string {
+    if (skillId === 'code') {
+      return 'Code';
+    }
+    return 'Chat';
+  }
+
+  public modelLabel(modelId: string | undefined): string {
+    if (modelId === 'gemma-e2b') {
+      return 'E2B';
+    }
+    if (modelId === 'gemma-e4b') {
+      return 'E4B';
+    }
+    return '2B';
+  }
+}
+
+const formatter = new MessageLabelFormatter();
+
 const MessageBubble: FC<MessageBubbleProps> = ({ message }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -142,11 +163,12 @@ const MessageBubble: FC<MessageBubbleProps> = ({ message }) => {
 
         {!isUser ? (
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-300">
-            {message.skillId ? (
-              <span className="rounded-full border border-slate-500 bg-slate-700 px-2 py-0.5">
-                {message.skillId === 'chat' ? 'Chat' : 'Code'}
-              </span>
-            ) : null}
+            <span className="rounded-full border border-slate-500 bg-slate-700 px-2 py-0.5">
+              {formatter.skillLabel(message.skillId)}
+            </span>
+            <span className="rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2 py-0.5 text-cyan-200">
+              {formatter.modelLabel(message.modelId)}
+            </span>
             {typeof message.responseMs === 'number' ? (
               <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-emerald-200">
                 ⏱ {message.responseMs} ms

@@ -10,14 +10,17 @@ from .hardware import HardwareInfo
 
 
 class QuantizationStrategy(ABC):
-    """Abstract interface for model loading and token streaming."""
+    """Abstract inference strategy interface for model loading and streaming."""
+
+    backend_name: str
+    quantization: str
 
     @abstractmethod
     def load_model(self, model_id: str) -> None:
-        """Load model weights and tokenizer resources.
+        """Load model artifacts into memory.
 
         Args:
-            model_id: Hugging Face model ID or local file path.
+            model_id: Model ID (remote) or file path (local), depending on backend.
 
         Returns:
             None.
@@ -25,43 +28,48 @@ class QuantizationStrategy(ABC):
 
     @abstractmethod
     def generate(self, messages: list[dict], system: str) -> Generator[str, None, None]:
-        """Stream generated tokens for a message history.
+        """Stream response tokens for a chat payload.
 
         Args:
-            messages: Sanitized chat history.
-            system: System prompt for the active skill.
+            messages: Sanitized conversation history.
+            system: Skill system prompt.
 
         Returns:
-            Generator[str, None, None]: Streamed output tokens.
+            Generator[str, None, None]: Token stream.
         """
 
 
 class MLXQuantization(QuantizationStrategy):
-    """Apple Silicon MLX strategy for INT4/INT8 quantized inference."""
+    """MLX-backed strategy for Apple Silicon acceleration via Metal."""
 
-    def __init__(self, precision: str = "int4") -> None:
-        """Initialize MLX strategy metadata.
+    def __init__(self, precision: str = "int4", max_tokens: int = 512) -> None:
+        """Initialize MLX strategy settings.
 
         Args:
-            precision: Preferred quantization precision (`int4` or `int8`).
+            precision: Preferred precision (`int4` or `int8`).
+            max_tokens: Maximum generation token count.
 
         Returns:
             None.
         """
         self.precision: str = precision
+        self.max_tokens: int = max_tokens
         self.backend_name: str = "mlx"
         self.quantization: str = precision.upper()
         self.model_name: str = ""
         self._model: object | None = None
         self._tokenizer: object | None = None
         self._stream_generate: object | None = None
-        self._mock_mode: bool = os.getenv("GEMMA_SKIP_MODEL_LOAD", "0") == "1"
+        self._mock_mode: bool = (
+            os.getenv("GEMMA_SKIP_MODEL_LOAD", "0") == "1"
+            or os.getenv("SKIP_MODEL_LOAD", "0") == "1"
+        )
 
     def load_model(self, model_id: str) -> None:
-        """Load MLX model and tokenizer lazily.
+        """Load an MLX model and tokenizer.
 
         Args:
-            model_id: MLX-compatible model identifier.
+            model_id: Hugging Face model ID for MLX.
 
         Returns:
             None.
@@ -76,9 +84,9 @@ class MLXQuantization(QuantizationStrategy):
         try:
             from mlx_lm import load, stream_generate  # type: ignore
 
-            loaded_model, loaded_tokenizer = load(model_id)
-            self._model = loaded_model
-            self._tokenizer = loaded_tokenizer
+            model, tokenizer = load(model_id)
+            self._model = model
+            self._tokenizer = tokenizer
             self._stream_generate = stream_generate
         except Exception as exc:
             raise ModelError(
@@ -88,20 +96,20 @@ class MLXQuantization(QuantizationStrategy):
             ) from exc
 
     def generate(self, messages: list[dict], system: str) -> Generator[str, None, None]:
-        """Generate tokens with MLX chat templating.
+        """Generate response tokens using MLX streaming APIs.
 
         Args:
             messages: Sanitized conversation history.
-            system: Active skill system prompt.
+            system: Skill system prompt.
 
         Returns:
-            Generator[str, None, None]: Streamed response tokens.
+            Generator[str, None, None]: Token stream.
         """
         if self._model is None or self._tokenizer is None:
             raise ModelError(
                 message="Model is not loaded",
                 status_code=500,
-                log_detail="MLX model requested before load_model",
+                log_detail="MLX strategy used before load_model",
             )
 
         if self._mock_mode:
@@ -109,37 +117,39 @@ class MLXQuantization(QuantizationStrategy):
                 yield token
             return
 
-        tokenizer_object = self._tokenizer
-        model_object = self._model
         stream_generate_callable = self._stream_generate
         if stream_generate_callable is None:
             raise ModelError(
                 message="MLX generator unavailable",
                 status_code=500,
-                log_detail="stream_generate was not initialized",
+                log_detail="stream_generate not initialized",
             )
 
-        payload = self._build_messages(messages, system)
+        payload = self._build_messages(messages=messages, system=system)
+        tokenizer = self._tokenizer
+        model = self._model
+
         try:
-            prompt = getattr(tokenizer_object, "apply_chat_template")(
+            prompt = getattr(tokenizer, "apply_chat_template")(
                 payload,
                 tokenize=False,
                 add_generation_prompt=True,
             )
         except TypeError:
-            prompt = getattr(tokenizer_object, "apply_chat_template")(
+            prompt = getattr(tokenizer, "apply_chat_template")(
                 payload,
                 add_generation_prompt=True,
             )
 
         try:
-            for output in stream_generate_callable(
-                model_object,
-                tokenizer_object,
+            stream = stream_generate_callable(
+                model,
+                tokenizer,
                 prompt=prompt,
-                max_tokens=1024,
-            ):
-                text = getattr(output, "text", "")
+                max_tokens=self.max_tokens,
+            )
+            for chunk in stream:
+                text = str(getattr(chunk, "text", ""))
                 if text:
                     yield text
         except Exception as exc:
@@ -152,14 +162,14 @@ class MLXQuantization(QuantizationStrategy):
     def _build_messages(
         self, messages: list[dict], system: str
     ) -> list[dict[str, str]]:
-        """Compose system and user/assistant turns for the model template.
+        """Build a chat payload expected by MLX chat templates.
 
         Args:
-            messages: Conversation messages.
-            system: System prompt text.
+            messages: Sanitized chat messages.
+            system: Skill system prompt.
 
         Returns:
-            list[dict[str, str]]: Template-compatible message payload.
+            list[dict[str, str]]: Ordered chat payload.
         """
         payload: list[dict[str, str]] = [{"role": "system", "content": system}]
         for message in messages:
@@ -173,29 +183,44 @@ class MLXQuantization(QuantizationStrategy):
 
 
 class LlamaCppQuantization(QuantizationStrategy):
-    """Llama.cpp strategy for Intel and non-Metal Q4_K_M inference."""
+    """Llama.cpp strategy for GGUF execution on CUDA or CPU fallback."""
 
-    def __init__(self, quant: str = "Q4_K_M") -> None:
-        """Initialize llama.cpp strategy metadata.
+    def __init__(
+        self,
+        quant: str = "Q4_K_M",
+        max_tokens: int = 512,
+        n_ctx: int = 4096,
+        n_gpu_layers: int = 0,
+    ) -> None:
+        """Initialize llama.cpp strategy options.
 
         Args:
             quant: GGUF quantization label.
+            max_tokens: Maximum generation token count.
+            n_ctx: Context window length.
+            n_gpu_layers: Number of layers offloaded to GPU.
 
         Returns:
             None.
         """
         self.quant: str = quant
+        self.max_tokens: int = max_tokens
+        self.n_ctx: int = n_ctx
+        self.n_gpu_layers: int = n_gpu_layers
         self.backend_name: str = "llama.cpp"
         self.quantization: str = quant
         self.model_name: str = ""
         self._llm: object | None = None
-        self._mock_mode: bool = os.getenv("GEMMA_SKIP_MODEL_LOAD", "0") == "1"
+        self._mock_mode: bool = (
+            os.getenv("GEMMA_SKIP_MODEL_LOAD", "0") == "1"
+            or os.getenv("SKIP_MODEL_LOAD", "0") == "1"
+        )
 
     def load_model(self, model_id: str) -> None:
-        """Load GGUF model through llama-cpp-python.
+        """Load a GGUF model through llama-cpp-python.
 
         Args:
-            model_id: Path to GGUF model.
+            model_id: GGUF file path.
 
         Returns:
             None.
@@ -210,7 +235,7 @@ class LlamaCppQuantization(QuantizationStrategy):
             raise ModelError(
                 message="GGUF model file not found",
                 status_code=500,
-                log_detail=f"Missing file at {model_path}",
+                log_detail=f"missing_file={model_path}",
             )
 
         try:
@@ -219,9 +244,9 @@ class LlamaCppQuantization(QuantizationStrategy):
             threads = max((os.cpu_count() or 4) - 1, 1)
             self._llm = Llama(
                 model_path=str(model_path),
-                n_ctx=4096,
+                n_ctx=self.n_ctx,
                 n_threads=threads,
-                n_gpu_layers=0,
+                n_gpu_layers=self.n_gpu_layers,
                 verbose=False,
             )
         except Exception as exc:
@@ -232,20 +257,20 @@ class LlamaCppQuantization(QuantizationStrategy):
             ) from exc
 
     def generate(self, messages: list[dict], system: str) -> Generator[str, None, None]:
-        """Generate streamed tokens using llama.cpp chat completion API.
+        """Generate response tokens from a loaded GGUF model.
 
         Args:
             messages: Sanitized conversation history.
-            system: Active skill system prompt.
+            system: Skill system prompt.
 
         Returns:
-            Generator[str, None, None]: Streamed response tokens.
+            Generator[str, None, None]: Token stream.
         """
         if self._llm is None:
             raise ModelError(
                 message="Model is not loaded",
                 status_code=500,
-                log_detail="llama.cpp model requested before load_model",
+                log_detail="llama.cpp strategy used before load_model",
             )
 
         if self._mock_mode:
@@ -253,25 +278,30 @@ class LlamaCppQuantization(QuantizationStrategy):
                 yield token
             return
 
+        payload = self._build_messages(messages=messages, system=system)
         llm = self._llm
-        payload = self._build_messages(messages, system)
 
         try:
             stream = getattr(llm, "create_chat_completion")(
                 messages=payload,
                 stream=True,
+                max_tokens=self.max_tokens,
                 temperature=0.2,
                 top_p=0.9,
-                max_tokens=1024,
             )
             for chunk in stream:
                 choices = chunk.get("choices") or []
                 if not choices:
                     continue
+
                 delta = choices[0].get("delta") or {}
-                token = delta.get("content")
-                if token:
-                    yield str(token)
+                if "content" in delta and delta["content"]:
+                    yield str(delta["content"])
+                    continue
+
+                text = choices[0].get("text")
+                if text:
+                    yield str(text)
         except Exception as exc:
             raise ModelError(
                 message="Token generation failed",
@@ -282,14 +312,14 @@ class LlamaCppQuantization(QuantizationStrategy):
     def _build_messages(
         self, messages: list[dict], system: str
     ) -> list[dict[str, str]]:
-        """Compose system and conversation messages for llama.cpp.
+        """Build chat payload expected by llama.cpp chat completion API.
 
         Args:
-            messages: Conversation messages.
-            system: System prompt text.
+            messages: Sanitized chat messages.
+            system: Skill system prompt.
 
         Returns:
-            list[dict[str, str]]: Chat payload for llama.cpp.
+            list[dict[str, str]]: Ordered chat payload.
         """
         payload: list[dict[str, str]] = [{"role": "system", "content": system}]
         for message in messages:
@@ -303,41 +333,33 @@ class LlamaCppQuantization(QuantizationStrategy):
 
 
 class QuantizationSelector:
-    """Selects the optimal quantization strategy from detected hardware."""
+    """Select the most suitable inference backend for current hardware."""
 
     def __init__(self) -> None:
-        """Initialize selector constants."""
-        self._minimum_int8_ram_gb: float = 8.0
+        """Initialize threshold values for backend selection."""
         self._minimum_int4_ram_gb: float = 16.0
+        self._minimum_int8_ram_gb: float = 8.0
+        self._cuda_gpu_layers: int = 35
 
     def select(self, hw: HardwareInfo) -> QuantizationStrategy:
-        """Select a quantization strategy based on machine capabilities.
+        """Choose MLX, CUDA-offloaded llama.cpp, or CPU llama.cpp.
 
         Args:
             hw: Detected hardware profile.
 
         Returns:
-            QuantizationStrategy: Selected inference strategy.
+            QuantizationStrategy: Strategy optimized for this host.
         """
-        is_apple_silicon = self._is_apple_silicon(hw)
-        if is_apple_silicon and hw.ram_total_gb >= self._minimum_int4_ram_gb:
-            return MLXQuantization(precision="int4")
-        if (
-            is_apple_silicon
-            and self._minimum_int8_ram_gb <= hw.ram_total_gb < self._minimum_int4_ram_gb
-        ):
+        if hw.is_apple_silicon and hw.metal_gpu:
+            if hw.ram_total_gb >= self._minimum_int4_ram_gb:
+                return MLXQuantization(precision="int4")
+            if self._minimum_int8_ram_gb <= hw.ram_total_gb < self._minimum_int4_ram_gb:
+                return MLXQuantization(precision="int8")
             return MLXQuantization(precision="int8")
-        return LlamaCppQuantization(quant="Q4_K_M")
 
-    def _is_apple_silicon(self, hw: HardwareInfo) -> bool:
-        """Infer Apple Silicon status from chip string and Metal support.
+        if hw.cuda_gpu:
+            return LlamaCppQuantization(
+                quant="Q4_K_M", n_gpu_layers=self._cuda_gpu_layers
+            )
 
-        Args:
-            hw: Hardware profile.
-
-        Returns:
-            bool: True when hardware appears to be Apple Silicon.
-        """
-        chip_lower = hw.chip.lower()
-        apple_tokens = ["apple", "m1", "m2", "m3", "m4"]
-        return hw.metal_gpu and any(token in chip_lower for token in apple_tokens)
+        return LlamaCppQuantization(quant="Q4_K_M", n_gpu_layers=0)

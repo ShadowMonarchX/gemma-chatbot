@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class HardwareInfo(BaseModel):
-    """Normalized hardware capabilities consumed by model selection logic."""
+    """Strict representation of host hardware capabilities."""
 
     model_config = ConfigDict(strict=True)
 
@@ -17,53 +17,60 @@ class HardwareInfo(BaseModel):
     ram_available_gb: float
     cpu_cores: int
     metal_gpu: bool
+    cuda_gpu: bool
+    is_apple_silicon: bool
+    platform_system: str
 
 
 class HardwareDetector:
-    """Detects CPU, memory, and Metal capabilities for quantization selection."""
+    """Detects CPU, memory, and accelerator capabilities at startup."""
 
     def __init__(self) -> None:
-        """Initialize the hardware detector."""
-        self._ram_bytes_per_gb: float = float(1024**3)
+        """Initialize constants used during hardware inspection."""
+        self._bytes_per_gb: float = float(1024**3)
 
     def detect(self) -> HardwareInfo:
-        """Read machine capabilities and return a strict hardware descriptor.
+        """Read machine attributes and return a strict hardware profile.
 
         Returns:
-            HardwareInfo: Hardware details required by model selection.
+            HardwareInfo: Full hardware snapshot used by runtime selection.
         """
-        virtual_memory = psutil.virtual_memory()
-        chip_name = self._read_apple_silicon()
-        detected_processor = platform.processor().strip()
-        if detected_processor and detected_processor.lower() not in chip_name.lower():
-            chip_name = f"{chip_name} ({detected_processor})"
+        memory = psutil.virtual_memory()
+        total_ram = self._read_ram()
+        available_ram = round(memory.available / self._bytes_per_gb, 2)
+        cpu_cores = psutil.cpu_count(logical=False) or psutil.cpu_count(logical=True) or 1
 
-        total_gb = self._read_ram()
-        available_gb = round(virtual_memory.available / self._ram_bytes_per_gb, 2)
-        cores = psutil.cpu_count(logical=False) or psutil.cpu_count(logical=True) or 1
+        chip_name = self._read_apple_silicon()
+        processor_name = platform.processor().strip()
+        if processor_name and processor_name.lower() not in chip_name.lower():
+            chip_name = f"{chip_name} ({processor_name})"
+
+        is_apple = self._is_apple_silicon(chip_name)
 
         return HardwareInfo(
             chip=chip_name,
-            ram_total_gb=total_gb,
-            ram_available_gb=available_gb,
-            cpu_cores=int(cores),
+            ram_total_gb=total_ram,
+            ram_available_gb=available_ram,
+            cpu_cores=int(cpu_cores),
             metal_gpu=self._check_metal(),
+            cuda_gpu=self._check_cuda(),
+            is_apple_silicon=is_apple,
+            platform_system=platform.system(),
         )
 
     def _read_apple_silicon(self) -> str:
-        """Determine chip branding from sysctl and processor introspection.
+        """Read CPU branding via sysctl and platform fallbacks.
 
         Returns:
-            str: Human-readable chip identifier.
+            str: Human-readable chip name.
         """
         processor_name = platform.processor().strip()
         command = ["sysctl", "-n", "machdep.cpu.brand_string"]
         try:
-            sysctl_chip = subprocess.check_output(command, text=True).strip()
-            if sysctl_chip:
-                return sysctl_chip
+            chip = subprocess.check_output(command, text=True).strip()
+            if chip:
+                return chip
         except Exception:
-            processor_name = platform.processor().strip()
             if processor_name:
                 return processor_name
 
@@ -77,19 +84,18 @@ class HardwareDetector:
         return "Unknown CPU"
 
     def _read_ram(self) -> float:
-        """Read total RAM in gigabytes.
+        """Read total system RAM in GB.
 
         Returns:
-            float: Rounded total system RAM in GB.
+            float: Rounded total RAM in gigabytes.
         """
-        total_bytes = psutil.virtual_memory().total
-        return round(total_bytes / self._ram_bytes_per_gb, 2)
+        return round(psutil.virtual_memory().total / self._bytes_per_gb, 2)
 
     def _check_metal(self) -> bool:
-        """Check whether Metal GPU acceleration is available.
+        """Detect whether MLX Metal acceleration is available.
 
         Returns:
-            bool: True when mlx Metal backend is available.
+            bool: True when Metal backend is available.
         """
         try:
             import mlx.core as mx  # type: ignore
@@ -97,6 +103,38 @@ class HardwareDetector:
             return bool(mx.metal.is_available())
         except Exception:
             return False
+
+    def _check_cuda(self) -> bool:
+        """Detect whether CUDA is available through PyTorch.
+
+        Returns:
+            bool: True when CUDA runtime is available.
+        """
+        try:
+            import torch  # type: ignore
+
+            return bool(torch.cuda.is_available())
+        except Exception:
+            return False
+
+    def _is_apple_silicon(self, chip_name: str) -> bool:
+        """Determine whether hardware appears to be Apple Silicon.
+
+        Args:
+            chip_name: Chip branding string.
+
+        Returns:
+            bool: True when running on Apple Silicon.
+        """
+        if platform.system() != "Darwin":
+            return False
+
+        normalized = chip_name.lower()
+        apple_tokens = ("apple", "m1", "m2", "m3", "m4", "m5")
+        if any(token in normalized for token in apple_tokens):
+            return True
+
+        return platform.machine().lower() == "arm64"
 
 
 hardware_detector = HardwareDetector()

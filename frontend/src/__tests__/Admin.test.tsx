@@ -1,13 +1,16 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 
 import Admin from '../pages/Admin';
 import { useAdminStore } from '../stores/adminStore';
 
 const adminPayload = {
   status: 'ok',
-  model: 'google/gemma-4-2b-it',
+  model_id: 'gemma-2b',
+  model_label: 'Gemma 2B',
+  backend: 'mlx',
   quantization: 'INT4',
   hardware: {
     chip: 'Apple M2',
@@ -15,20 +18,30 @@ const adminPayload = {
     ram_available_gb: 9.2,
     cpu_cores: 8,
     metal_gpu: true,
+    cuda_gpu: false,
+    is_apple_silicon: true,
+    platform_system: 'Darwin',
   },
   model_load_ms: 1200,
   avg_tokens_per_sec: 42.3,
+  last_tokens_per_sec: 44.1,
   uptime_seconds: 3720,
   last_request_ms: 318,
   total_requests: 148,
   errors: 0,
   avg_response_ms: 318,
+  avg_first_token_ms: 42,
   requests_per_minute: 10,
   skill_usage: {
     chat: 73,
     code: 27,
   },
-  hallucination_guards_triggered: 0,
+  model_usage: {
+    'gemma-2b': 101,
+    'gemma-e2b': 29,
+    'gemma-e4b': 18,
+  },
+  injection_blocks: 0,
   rate_limit_hits: 0,
 };
 
@@ -61,7 +74,11 @@ describe('Admin page', () => {
       )
     );
 
-    render(<Admin />);
+    render(
+      <MemoryRouter>
+        <Admin />
+      </MemoryRouter>
+    );
 
     await waitFor(() => {
       expect(screen.getByText(/Apple M2/i)).toBeInTheDocument();
@@ -81,7 +98,11 @@ describe('Admin page', () => {
       )
     );
 
-    render(<Admin />);
+    render(
+      <MemoryRouter>
+        <Admin />
+      </MemoryRouter>
+    );
 
     await waitFor(() => {
       expect(screen.getByText(/All systems nominal/i)).toBeInTheDocument();
@@ -98,7 +119,11 @@ describe('Admin page', () => {
     );
     vi.stubGlobal('fetch', fetchSpy);
 
-    render(<Admin />);
+    render(
+      <MemoryRouter>
+        <Admin />
+      </MemoryRouter>
+    );
 
     await Promise.resolve();
     await Promise.resolve();
@@ -119,7 +144,11 @@ describe('Admin page', () => {
     );
     vi.stubGlobal('fetch', fetchSpy);
 
-    render(<Admin />);
+    render(
+      <MemoryRouter>
+        <Admin />
+      </MemoryRouter>
+    );
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledTimes(1);

@@ -35,8 +35,8 @@ export class ApiClient {
       return undefined as T;
     }
 
-    const data = (await response.json()) as T;
-    return data;
+    const payload = (await response.json()) as T;
+    return payload;
   }
 
   public async apiStream(url: string, options: RequestInit = {}): Promise<Response> {
@@ -64,8 +64,12 @@ export class ApiClient {
     let message = `Request failed with status ${response.status}`;
 
     try {
-      const payload = (await response.json()) as { detail?: string; error?: string; message?: string };
-      message = payload.detail ?? payload.error ?? payload.message ?? message;
+      const payload = (await response.json()) as {
+        detail?: string;
+        error?: string;
+        message?: string;
+      };
+      message = payload.error ?? payload.detail ?? payload.message ?? message;
     } catch {
       message = response.statusText || message;
     }

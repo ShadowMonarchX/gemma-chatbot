@@ -7,7 +7,10 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-os.environ.setdefault("GEMMA_SKIP_MODEL_LOAD", "1")
+os.environ.setdefault("SKIP_MODEL_LOAD", "1")
+os.environ.setdefault("MODEL_PATH", "backend/models")
+os.environ.setdefault("DEFAULT_MODEL", "gemma-2b")
+os.environ.setdefault("MAX_TOKENS", "512")
 
 from backend.main import app, chatbot_app
 from backend.metrics import metrics_collector
@@ -16,14 +19,16 @@ from backend.rate_limiter import rate_limiter
 
 
 class MockQuantizationStrategy(QuantizationStrategy):
-    """Mock strategy used by tests to stream deterministic tokens."""
+    """Mock quantization strategy with deterministic token streaming."""
 
     def __init__(self) -> None:
         """Initialize mock state."""
-        self.loaded: bool = False
+        self.backend_name: str = "mock"
+        self.quantization: str = "MOCK"
+        self.loaded_model_id: str = ""
 
     def load_model(self, model_id: str) -> None:
-        """Mark model as loaded.
+        """Record loaded model ID.
 
         Args:
             model_id: Model identifier.
@@ -31,18 +36,17 @@ class MockQuantizationStrategy(QuantizationStrategy):
         Returns:
             None.
         """
-        _ = model_id
-        self.loaded = True
+        self.loaded_model_id = model_id
 
     def generate(self, messages: list[dict], system: str) -> Generator[str, None, None]:
-        """Yield deterministic test tokens.
+        """Yield deterministic stream chunks.
 
         Args:
-            messages: Input messages.
+            messages: Sanitized messages.
             system: System prompt.
 
         Returns:
-            Generator[str, None, None]: Fixed output stream.
+            Generator[str, None, None]: Mock token stream.
         """
         _ = messages
         _ = system
@@ -51,8 +55,8 @@ class MockQuantizationStrategy(QuantizationStrategy):
 
 
 @pytest.fixture(autouse=True)
-def reset_metrics() -> Generator[None, None, None]:
-    """Reset shared in-memory runtime state before each test."""
+def reset_runtime_state() -> Generator[None, None, None]:
+    """Reset shared state before and after each test."""
     metrics_collector.reset()
     rate_limiter.reset()
     yield
@@ -62,7 +66,7 @@ def reset_metrics() -> Generator[None, None, None]:
 
 @pytest.fixture()
 def mock_quantization_strategy() -> MockQuantizationStrategy:
-    """Provide deterministic quantization strategy instance."""
+    """Create one deterministic quantization strategy fixture."""
     return MockQuantizationStrategy()
 
 
@@ -70,22 +74,32 @@ def mock_quantization_strategy() -> MockQuantizationStrategy:
 async def async_client(
     mock_quantization_strategy: MockQuantizationStrategy,
 ) -> AsyncGenerator[AsyncClient, None]:
-    """Create an async API client with mocked model manager.
+    """Create async client with model manager forced to deterministic mode.
 
     Args:
-        mock_quantization_strategy: Strategy fixture.
+        mock_quantization_strategy: Deterministic strategy fixture.
 
     Returns:
-        AsyncGenerator[AsyncClient, None]: Configured async client.
+        AsyncGenerator[AsyncClient, None]: Async client fixture.
     """
     manager = chatbot_app.model_manager
-    manager._strategy = mock_quantization_strategy
-    manager._loaded = True
-    manager._model_name = "google/gemma-4-2b-it"
-    manager._quantization = "INT4"
-    manager._model_load_ms = 10
+    mock_quantization_strategy.load_model("mock://gemma")
+
+    manager._model_cache = {
+        "gemma-2b": mock_quantization_strategy,
+        "gemma-e2b": mock_quantization_strategy,
+        "gemma-e4b": mock_quantization_strategy,
+    }
+    manager._model_load_times_ms = {
+        "gemma-2b": 10,
+        "gemma-e2b": 10,
+        "gemma-e4b": 10,
+    }
+    manager._active_strategy = mock_quantization_strategy
+    manager._active_model_id = "gemma-2b"
     manager._last_tokens_per_sec = 50.0
     manager._avg_tokens_per_sec = 45.5
+    manager._generation_runs = 1
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:

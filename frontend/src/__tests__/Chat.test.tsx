@@ -8,6 +8,45 @@ import { useChatStore } from '../stores/chatStore';
 
 const encoder = new TextEncoder();
 
+const modelsPayload = {
+  active_model_id: 'gemma-2b',
+  models: [
+    {
+      id: 'gemma-2b',
+      label: 'Gemma 2B',
+      backend: 'mlx',
+      source: 'google/gemma-2b-it',
+      quantization: 'INT4',
+      available: true,
+      default: true,
+      description: 'Fast baseline model.',
+      alias_of: null,
+    },
+    {
+      id: 'gemma-e2b',
+      label: 'Gemma E2B',
+      backend: 'mlx',
+      source: 'google/gemma-2b-it',
+      quantization: 'INT4',
+      available: true,
+      default: false,
+      description: 'Efficient profile.',
+      alias_of: 'gemma-2b',
+    },
+    {
+      id: 'gemma-e4b',
+      label: 'Gemma E4B',
+      backend: 'mlx',
+      source: 'google/gemma-2b-it',
+      quantization: 'INT4',
+      available: true,
+      default: false,
+      description: 'Quality profile.',
+      alias_of: 'gemma-2b',
+    },
+  ],
+};
+
 const createSseResponse = (events: string[], responseMs = 312): Response => {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -23,9 +62,34 @@ const createSseResponse = (events: string[], responseMs = 312): Response => {
     headers: {
       'Content-Type': 'text/event-stream',
       'X-Response-Ms': String(responseMs),
-      'X-Request-Id': 'req-test-1',
+      'X-Request-Id': 'req-chat-1',
     },
   });
+};
+
+const createJsonResponse = (payload: unknown, status = 200, requestId = 'req-json-1'): Response =>
+  new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Request-Id': requestId,
+    },
+  });
+
+const installDefaultFetch = (chatResponse: Response): void => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/models')) {
+        return Promise.resolve(createJsonResponse(modelsPayload));
+      }
+      if (url.includes('/api/chat')) {
+        return Promise.resolve(chatResponse);
+      }
+      return Promise.resolve(createJsonResponse({ error: 'not found' }, 404));
+    })
+  );
 };
 
 const resetStore = () => {
@@ -33,6 +97,9 @@ const resetStore = () => {
   useChatStore.setState({
     messages: [],
     skill: { id: 'chat', label: 'Chat' },
+    modelId: 'gemma-2b',
+    models: [],
+    modelsLoading: false,
     isStreaming: false,
     responseMs: null,
     inputError: null,
@@ -54,23 +121,24 @@ describe('Chat page', () => {
       </MemoryRouter>
     );
 
-  it('renders skill tabs', () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createSseResponse(['data: [DONE]'])));
+  it('renders skill tabs', async () => {
+    installDefaultFetch(createSseResponse(['data: [DONE]']));
+
     renderChatApp();
 
-    expect(screen.getByRole('button', { name: /switch to chat mode/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /switch to chat mode/i })).toBeInTheDocument();
+    });
     expect(screen.getByRole('button', { name: /switch to code mode/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/select model/i)).toBeInTheDocument();
   });
 
   it('sends message on Enter', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(createSseResponse(['data: Hello', 'data: [DONE]']))
-    );
+    installDefaultFetch(createSseResponse(['data: Hello', 'data: [DONE]']));
 
     renderChatApp();
 
-    const textarea = screen.getByLabelText(/message input/i);
+    const textarea = await screen.findByLabelText(/message input/i);
     fireEvent.change(textarea, { target: { value: 'Hello model' } });
     fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
 
@@ -80,20 +148,27 @@ describe('Chat page', () => {
   });
 
   it('shows typing indicator while streaming', async () => {
-    let resolveFetch: (value: Response | PromiseLike<Response>) => void = () => {};
+    let resolveChat: (value: Response | PromiseLike<Response>) => void = () => {};
+
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockImplementation(
-        () =>
-          new Promise<Response>((resolve) => {
-            resolveFetch = resolve;
-          })
-      )
+      vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/models')) {
+          return Promise.resolve(createJsonResponse(modelsPayload));
+        }
+        if (url.includes('/api/chat')) {
+          return new Promise<Response>((resolve) => {
+            resolveChat = resolve;
+          });
+        }
+        return Promise.resolve(createJsonResponse({ error: 'not found' }, 404));
+      })
     );
 
     renderChatApp();
 
-    const textarea = screen.getByLabelText(/message input/i);
+    const textarea = await screen.findByLabelText(/message input/i);
     fireEvent.change(textarea, { target: { value: 'Stream please' } });
     fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
 
@@ -101,7 +176,7 @@ describe('Chat page', () => {
       expect(screen.getByText(/assistant is typing/i)).toBeInTheDocument();
     });
 
-    resolveFetch(createSseResponse(['data: hello', 'data: [DONE]']));
+    resolveChat(createSseResponse(['data: hello', 'data: [DONE]']));
 
     await waitFor(() => {
       expect(screen.queryByText(/assistant is typing/i)).not.toBeInTheDocument();
@@ -109,16 +184,11 @@ describe('Chat page', () => {
   });
 
   it('displays response time badge after stream ends', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        createSseResponse(['data: Hello', 'data: world', 'data: [DONE]'], 312)
-      )
-    );
+    installDefaultFetch(createSseResponse(['data: Hello', 'data: world', 'data: [DONE]'], 312));
 
     renderChatApp();
 
-    const textarea = screen.getByLabelText(/message input/i);
+    const textarea = await screen.findByLabelText(/message input/i);
     fireEvent.change(textarea, { target: { value: 'Latency check' } });
     fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
 
@@ -128,11 +198,11 @@ describe('Chat page', () => {
   });
 
   it('clears history on skill switch', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createSseResponse(['data: done', 'data: [DONE]'])));
+    installDefaultFetch(createSseResponse(['data: done', 'data: [DONE]']));
 
     renderChatApp();
 
-    const textarea = screen.getByLabelText(/message input/i);
+    const textarea = await screen.findByLabelText(/message input/i);
     fireEvent.change(textarea, { target: { value: 'Keep this' } });
     fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
 
@@ -148,32 +218,45 @@ describe('Chat page', () => {
   });
 
   it('blocks empty message send', async () => {
-    const fetchSpy = vi.fn().mockResolvedValue(createSseResponse(['data: [DONE]']));
+    const fetchSpy = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/models')) {
+        return Promise.resolve(createJsonResponse(modelsPayload));
+      }
+      if (url.includes('/api/chat')) {
+        return Promise.resolve(createSseResponse(['data: [DONE]']));
+      }
+      return Promise.resolve(createJsonResponse({ error: 'not found' }, 404));
+    });
     vi.stubGlobal('fetch', fetchSpy);
 
     renderChatApp();
 
+    await screen.findByLabelText(/message input/i);
     expect(screen.getByRole('button', { name: /send message/i })).toBeDisabled();
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it('shows error toast on ApiError', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ error: 'Server failure' }), {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Request-Id': 'req-error-1',
-          },
-        })
-      )
+      vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/models')) {
+          return Promise.resolve(createJsonResponse(modelsPayload));
+        }
+        if (url.includes('/api/chat')) {
+          return Promise.resolve(
+            createJsonResponse({ error: 'Server failure' }, 500, 'req-error-1')
+          );
+        }
+        return Promise.resolve(createJsonResponse({ error: 'not found' }, 404));
+      })
     );
 
     renderChatApp();
 
-    const textarea = screen.getByLabelText(/message input/i);
+    const textarea = await screen.findByLabelText(/message input/i);
     fireEvent.change(textarea, { target: { value: 'Trigger error' } });
     fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
 
