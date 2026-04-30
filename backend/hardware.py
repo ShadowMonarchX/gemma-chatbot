@@ -2,105 +2,101 @@ from __future__ import annotations
 
 import platform
 import subprocess
-from dataclasses import asdict, dataclass
-from typing import Any
 
 import psutil
+from pydantic import BaseModel, ConfigDict
 
 
-@dataclass
-class HardwareProfile:
+class HardwareInfo(BaseModel):
+    """Normalized hardware capabilities consumed by model selection logic."""
+
+    model_config = ConfigDict(strict=True)
+
     chip: str
-    ram_total_gb: int
+    ram_total_gb: float
     ram_available_gb: float
     cpu_cores: int
     metal_gpu: bool
-    is_apple_silicon: bool
-    quantization: str
-
-    def to_dict(self) -> dict[str, Any]:
-        data = asdict(self)
-        data["ram_available_gb"] = round(self.ram_available_gb, 2)
-        return data
 
 
-def _sysctl_value(key: str) -> str:
-    try:
-        value = subprocess.check_output(["sysctl", "-n", key], text=True).strip()
-        return value
-    except Exception:
-        return ""
+class HardwareDetector:
+    """Detects CPU, memory, and Metal capabilities for quantization selection."""
+
+    def __init__(self) -> None:
+        """Initialize the hardware detector."""
+        self._ram_bytes_per_gb: float = float(1024**3)
+
+    def detect(self) -> HardwareInfo:
+        """Read machine capabilities and return a strict hardware descriptor.
+
+        Returns:
+            HardwareInfo: Hardware details required by model selection.
+        """
+        virtual_memory = psutil.virtual_memory()
+        chip_name = self._read_apple_silicon()
+        detected_processor = platform.processor().strip()
+        if detected_processor and detected_processor.lower() not in chip_name.lower():
+            chip_name = f"{chip_name} ({detected_processor})"
+
+        total_gb = self._read_ram()
+        available_gb = round(virtual_memory.available / self._ram_bytes_per_gb, 2)
+        cores = psutil.cpu_count(logical=False) or psutil.cpu_count(logical=True) or 1
+
+        return HardwareInfo(
+            chip=chip_name,
+            ram_total_gb=total_gb,
+            ram_available_gb=available_gb,
+            cpu_cores=int(cores),
+            metal_gpu=self._check_metal(),
+        )
+
+    def _read_apple_silicon(self) -> str:
+        """Determine chip branding from sysctl and processor introspection.
+
+        Returns:
+            str: Human-readable chip identifier.
+        """
+        processor_name = platform.processor().strip()
+        command = ["sysctl", "-n", "machdep.cpu.brand_string"]
+        try:
+            sysctl_chip = subprocess.check_output(command, text=True).strip()
+            if sysctl_chip:
+                return sysctl_chip
+        except Exception:
+            processor_name = platform.processor().strip()
+            if processor_name:
+                return processor_name
+
+        if processor_name:
+            return processor_name
+
+        machine_name = platform.machine().strip()
+        if machine_name:
+            return machine_name
+
+        return "Unknown CPU"
+
+    def _read_ram(self) -> float:
+        """Read total RAM in gigabytes.
+
+        Returns:
+            float: Rounded total system RAM in GB.
+        """
+        total_bytes = psutil.virtual_memory().total
+        return round(total_bytes / self._ram_bytes_per_gb, 2)
+
+    def _check_metal(self) -> bool:
+        """Check whether Metal GPU acceleration is available.
+
+        Returns:
+            bool: True when mlx Metal backend is available.
+        """
+        try:
+            import mlx.core as mx  # type: ignore
+
+            return bool(mx.metal.is_available())
+        except Exception:
+            return False
 
 
-def _detect_chip_name() -> str:
-    brand = _sysctl_value("machdep.cpu.brand_string")
-    if brand:
-        return brand
-
-    model = _sysctl_value("hw.model")
-    if model:
-        return model
-
-    proc = platform.processor().strip()
-    if proc:
-        return proc
-
-    return platform.machine() or "Unknown CPU"
-
-
-def _is_apple_silicon() -> bool:
-    if platform.system() != "Darwin":
-        return False
-
-    arm64_flag = _sysctl_value("hw.optional.arm64")
-    if arm64_flag == "1":
-        return True
-
-    machine = platform.machine().lower()
-    proc = platform.processor().lower()
-    return machine == "arm64" or "apple" in proc
-
-
-def _metal_is_available() -> bool:
-    try:
-        import mlx.core as mx  # type: ignore
-
-        return bool(mx.metal.is_available())
-    except Exception:
-        return False
-
-
-def choose_quantization(
-    *, is_apple_silicon: bool, metal_gpu: bool, ram_total_gb: int
-) -> str:
-    if is_apple_silicon and metal_gpu:
-        if ram_total_gb >= 16:
-            return "INT4-mlx"
-        if ram_total_gb >= 8:
-            return "INT8-mlx"
-
-    return "Q4_K_M-gguf"
-
-
-def detect_hardware() -> HardwareProfile:
-    memory = psutil.virtual_memory()
-    ram_total_gb = round(memory.total / (1024**3))
-    ram_available_gb = memory.available / (1024**3)
-
-    is_apple = _is_apple_silicon()
-    metal_gpu = _metal_is_available()
-    quantization = choose_quantization(
-        is_apple_silicon=is_apple,
-        metal_gpu=metal_gpu,
-        ram_total_gb=ram_total_gb,
-    )
-
-    return HardwareProfile(
-        chip=_detect_chip_name(),
-        ram_total_gb=ram_total_gb,
-        ram_available_gb=ram_available_gb,
-        cpu_cores=psutil.cpu_count(logical=False) or psutil.cpu_count(logical=True) or 1,
-        metal_gpu=metal_gpu,
-        is_apple_silicon=is_apple,
-        quantization=quantization,
-    )
+hardware_detector = HardwareDetector()

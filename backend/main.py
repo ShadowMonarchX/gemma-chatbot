@@ -1,389 +1,508 @@
 from __future__ import annotations
 
-import asyncio
-import json
-import os
+import html
+import logging
 import time
-from collections import Counter
-from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Iterable, Literal, Protocol
+import traceback
+import uuid
+from typing import Any, Generator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import ValidationError as PydanticValidationError
+from starlette.middleware.base import BaseHTTPMiddleware
 
-from .hardware import HardwareProfile, detect_hardware
-from .skills import SKILLS, get_skill_prompt, valid_skill_ids
-
-APP_MODEL_NAME = "gemma-4-2b-it"
-
-
-class ChatMessage(BaseModel):
-    role: Literal["system", "user", "assistant"]
-    content: str = Field(min_length=1)
-
-
-class ChatRequest(BaseModel):
-    messages: list[ChatMessage] = Field(min_length=1)
-    skill: str = "chat"
-    stream: bool = True
-
-    @field_validator("skill")
-    @classmethod
-    def validate_skill(cls, value: str) -> str:
-        if value not in valid_skill_ids():
-            allowed = ", ".join(sorted(valid_skill_ids()))
-            raise ValueError(f"Unknown skill '{value}'. Allowed skills: {allowed}")
-        return value
+from .errors import AppError, InjectionError, ModelError, RateLimitError, ValidationError
+from .hardware import HardwareDetector, HardwareInfo
+from .metrics import MetricsCollector, metrics_collector
+from .model_manager import ModelManager
+from .quantization import QuantizationSelector, QuantizationStrategy
+from .rate_limiter import RateLimiter, rate_limiter
+from .schemas import (
+    AdminResponse,
+    ChatRequest,
+    ChatStreamEnvelope,
+    HealthResponse,
+)
+from .skills import Skill, SkillRegistry, skill_registry
+from .validators import MessageValidator, message_validator
 
 
-class ModelBackend(Protocol):
-    model_name: str
-    quantization: str
+class RequestContextMiddleware(BaseHTTPMiddleware):
+    """Injects a request ID into request state and response headers."""
 
-    def stream_chat(
+    def __init__(self, app: FastAPI) -> None:
+        """Initialize middleware with FastAPI app.
+
+        Args:
+            app: ASGI application.
+
+        Returns:
+            None.
+        """
+        super().__init__(app)
+
+    async def dispatch(self, request: Request, call_next: Any) -> Any:
+        """Attach request ID to every response.
+
+        Args:
+            request: Incoming request.
+            call_next: Next ASGI handler.
+
+        Returns:
+            Any: Outgoing response.
+        """
+        request_id = str(uuid.uuid4())
+        request.state.request_id = request_id
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = request_id
+        return response
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Applies baseline security headers on every HTTP response."""
+
+    def __init__(self, app: FastAPI) -> None:
+        """Initialize middleware with FastAPI app.
+
+        Args:
+            app: ASGI application.
+
+        Returns:
+            None.
+        """
+        super().__init__(app)
+
+    async def dispatch(self, request: Request, call_next: Any) -> Any:
+        """Append security headers after request processing.
+
+        Args:
+            request: Incoming request.
+            call_next: Next ASGI handler.
+
+        Returns:
+            Any: Response with hardened headers.
+        """
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Content-Security-Policy"] = "default-src 'self'"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+
+
+class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+    """Rejects HTTP requests whose body exceeds a configured byte limit."""
+
+    def __init__(self, app: FastAPI, max_body_bytes: int = 64 * 1024) -> None:
+        """Initialize request size middleware.
+
+        Args:
+            app: ASGI application.
+            max_body_bytes: Maximum accepted payload size in bytes.
+
+        Returns:
+            None.
+        """
+        super().__init__(app)
+        self._max_body_bytes = max_body_bytes
+
+    async def dispatch(self, request: Request, call_next: Any) -> Any:
+        """Validate content length before route execution.
+
+        Args:
+            request: Incoming request.
+            call_next: Next ASGI handler.
+
+        Returns:
+            Any: Accepted response or 413 JSON response.
+        """
+        content_length_header = request.headers.get("content-length", "")
+        if content_length_header.isdigit() and int(content_length_header) > self._max_body_bytes:
+            request_id = str(getattr(request.state, "request_id", uuid.uuid4()))
+            return JSONResponse(
+                status_code=413,
+                content={"error": "Request body too large", "request_id": request_id},
+                headers={"X-Request-Id": request_id},
+            )
+        return await call_next(request)
+
+
+class SSETokenStream:
+    """Iterator that converts generated tokens into escaped SSE event lines."""
+
+    def __init__(
         self,
-        messages: list[dict[str, str]],
-        *,
-        max_tokens: int = 512,
-    ) -> Iterable[str]:
-        ...
+        token_stream: Generator[str, None, None],
+        metrics: MetricsCollector,
+        skill_id: str,
+        started_at: float,
+    ) -> None:
+        """Initialize streaming iterator state.
 
+        Args:
+            token_stream: Model token generator.
+            metrics: Shared metrics collector.
+            skill_id: Active skill identifier.
+            started_at: Request start timestamp from perf_counter.
 
-class MLXModelBackend:
-    def __init__(self, model_candidates: list[str], quantization: str) -> None:
-        from mlx_lm import load, stream_generate  # type: ignore
+        Returns:
+            None.
+        """
+        self._token_stream = token_stream
+        self._metrics = metrics
+        self._skill_id = skill_id
+        self._started_at = started_at
+        self._finished = False
 
-        self.quantization = quantization
-        self.model_name = APP_MODEL_NAME
-        self._stream_generate = stream_generate
-        self._source_model = ""
+    def __iter__(self) -> "SSETokenStream":
+        """Return self as an iterator.
 
-        last_error: Exception | None = None
-        for model_id in model_candidates:
-            if not model_id:
-                continue
-            try:
-                model, tokenizer = load(
-                    model_id,
-                    tokenizer_config={"trust_remote_code": True},
-                )
-                self._model = model
-                self._tokenizer = tokenizer
-                self._source_model = model_id
-                break
-            except Exception as exc:  # pragma: no cover - depends on local model/env
-                last_error = exc
+        Returns:
+            SSETokenStream: Iterator instance.
+        """
+        return self
 
-        if not hasattr(self, "_model"):
-            message = "Failed to load MLX model from candidates: " + ", ".join(model_candidates)
-            if last_error is not None:
-                message += f". Last error: {last_error}"
-            raise RuntimeError(message)
+    def __next__(self) -> bytes:
+        """Return one SSE-formatted event chunk.
 
-    def _build_prompt(self, messages: list[dict[str, str]]) -> Any:
+        Returns:
+            bytes: SSE `data:` line and delimiter.
+        """
+        if self._finished:
+            raise StopIteration
+
         try:
-            return self._tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
+            token = next(self._token_stream)
+            escaped = html.escape(str(token), quote=False)
+            return f"data: {escaped}\n\n".encode("utf-8")
+        except StopIteration:
+            self._finalize(error=False)
+            self._finished = True
+            return b"data: [DONE]\n\n"
+        except Exception:
+            self._finalize(error=True)
+            self._finished = True
+            return b"data: [DONE]\n\n"
+
+    def _finalize(self, error: bool) -> None:
+        """Finalize request metrics exactly once.
+
+        Args:
+            error: Whether stream ended with an error.
+
+        Returns:
+            None.
+        """
+        elapsed_ms = int((time.perf_counter() - self._started_at) * 1000)
+        self._metrics.record_request(skill_id=self._skill_id, ms=elapsed_ms, error=error)
+
+
+class ChatbotApp:
+    """Builds and configures the local-first Gemma chatbot API."""
+
+    def __init__(self) -> None:
+        """Initialize app dependencies, hardware detection, and model runtime."""
+        self.logger = logging.getLogger("gemma-chatbot")
+        self.logger.setLevel(logging.INFO)
+        self.app = FastAPI(title="Gemma Local Chatbot", version="1.0.0")
+        self._started_at = time.time()
+
+        self.hardware_detector: HardwareDetector = HardwareDetector()
+        self.quantization_selector: QuantizationSelector = QuantizationSelector()
+        self.skills: SkillRegistry = skill_registry
+        self.validator: MessageValidator = message_validator
+        self.rate_limiter: RateLimiter = rate_limiter
+        self.metrics: MetricsCollector = metrics_collector
+        self.model_manager: ModelManager = ModelManager.get_instance()
+
+        self.hardware: HardwareInfo = self.hardware_detector.detect()
+        self.strategy: QuantizationStrategy = self.quantization_selector.select(self.hardware)
+        self.model_manager.load(self.strategy)
+
+        model_stats = self.model_manager.get_stats()
+        self.logger.info(
+            "startup chip=%s quantization=%s model_load_ms=%s warmup_tokens_per_sec=%s",
+            self.hardware.chip,
+            model_stats.get("quantization", "unknown"),
+            model_stats.get("model_load_ms", 0),
+            model_stats.get("last_tokens_per_sec", 0.0),
+        )
+
+    def build(self) -> FastAPI:
+        """Build and return the configured FastAPI application.
+
+        Returns:
+            FastAPI: Ready-to-run API application.
+        """
+        self._register_middleware()
+        self._register_exception_handlers()
+        self._register_routes()
+        return self.app
+
+    def _register_routes(self) -> None:
+        """Register all HTTP routes on the FastAPI app.
+
+        Returns:
+            None.
+        """
+        self.app.add_api_route(
+            "/api/chat",
+            self.chat,
+            methods=["POST"],
+            response_model=ChatStreamEnvelope,
+            response_class=StreamingResponse,
+        )
+        self.app.add_api_route(
+            "/api/health",
+            self.health,
+            methods=["GET"],
+            response_model=HealthResponse,
+        )
+        self.app.add_api_route(
+            "/api/admin",
+            self.admin,
+            methods=["GET"],
+            response_model=AdminResponse,
+        )
+        self.app.add_api_route(
+            "/api/skills",
+            self.list_skills,
+            methods=["GET"],
+            response_model=list[Skill],
+        )
+
+    def _register_middleware(self) -> None:
+        """Register CORS, size guard, and security middleware.
+
+        Returns:
+            None.
+        """
+        self.app.add_middleware(RequestContextMiddleware)
+        self.app.add_middleware(BodySizeLimitMiddleware, max_body_bytes=64 * 1024)
+        self.app.add_middleware(SecurityHeadersMiddleware)
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["*"],
+        )
+
+    def _register_exception_handlers(self) -> None:
+        """Register consistent exception handlers for API safety.
+
+        Returns:
+            None.
+        """
+
+        @self.app.exception_handler(AppError)
+        async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+            request_id = self._request_id(request)
+            self.logger.error("app_error request_id=%s detail=%s", request_id, exc.log_detail)
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"error": exc.message, "request_id": request_id},
+                headers={"X-Request-Id": request_id},
             )
-        except TypeError:
-            return self._tokenizer.apply_chat_template(
-                messages,
-                add_generation_prompt=True,
+
+        @self.app.exception_handler(RequestValidationError)
+        async def request_validation_handler(
+            request: Request, exc: RequestValidationError
+        ) -> JSONResponse:
+            request_id = self._request_id(request)
+            return JSONResponse(
+                status_code=422,
+                content={"error": "Validation error", "details": exc.errors(), "request_id": request_id},
+                headers={"X-Request-Id": request_id},
             )
 
-    def stream_chat(
-        self,
-        messages: list[dict[str, str]],
-        *,
-        max_tokens: int = 512,
-    ) -> Iterable[str]:
-        prompt = self._build_prompt(messages)
-        for response in self._stream_generate(
-            self._model,
-            self._tokenizer,
-            prompt=prompt,
-            max_tokens=max_tokens,
-        ):
-            chunk = getattr(response, "text", "")
-            if chunk:
-                yield chunk
+        @self.app.exception_handler(PydanticValidationError)
+        async def pydantic_validation_handler(
+            request: Request, exc: PydanticValidationError
+        ) -> JSONResponse:
+            request_id = self._request_id(request)
+            return JSONResponse(
+                status_code=422,
+                content={"error": "Validation error", "details": exc.errors(), "request_id": request_id},
+                headers={"X-Request-Id": request_id},
+            )
 
+        @self.app.exception_handler(Exception)
+        async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+            request_id = self._request_id(request)
+            self.logger.error("request_id=%s unhandled_exception=%s", request_id, str(exc))
+            self.logger.error(traceback.format_exc())
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Internal server error", "request_id": request_id},
+                headers={"X-Request-Id": request_id},
+            )
 
-class LlamaCppBackend:
-    def __init__(self, gguf_path: str, quantization: str) -> None:
-        from llama_cpp import Llama  # type: ignore
+    async def chat(self, request: Request, payload: ChatRequest) -> StreamingResponse:
+        """Handle SSE chat generation requests.
 
-        self.quantization = quantization
-        self.model_name = APP_MODEL_NAME
-        self._source_model = gguf_path
-        self._llm = Llama(
-            model_path=gguf_path,
-            n_ctx=4096,
-            n_gpu_layers=-1,
-            n_threads=max((os.cpu_count() or 4) - 1, 1),
-            verbose=False,
+        Args:
+            request: Incoming HTTP request.
+            payload: Strict chat payload.
+
+        Returns:
+            StreamingResponse: SSE token stream.
+        """
+        request_id = self._request_id(request)
+        client_id = self._client_ip(request)
+
+        try:
+            self.rate_limiter.check(client_id)
+        except RateLimitError as exc:
+            self.metrics.record_rate_limit_hit()
+            retry_after = self.rate_limiter.get_retry_after(client_id)
+            raise HTTPException(
+                status_code=429,
+                detail=exc.message,
+                headers={"Retry-After": str(retry_after), "X-Request-Id": request_id},
+            ) from exc
+
+        try:
+            skill = self.skills.get(payload.skill_id)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=exc.message) from exc
+
+        raw_messages = [message.model_dump() for message in payload.messages]
+        try:
+            sanitized_messages = self.validator.validate_messages(raw_messages)
+        except InjectionError as exc:
+            self.metrics.record_hallucination_guard()
+            raise HTTPException(status_code=400, detail=exc.message) from exc
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=exc.message) from exc
+
+        started = time.perf_counter()
+        try:
+            token_stream = self.model_manager.generate_stream(
+                messages=sanitized_messages,
+                system=skill.system_prompt,
+                skill=payload.skill_id,
+            )
+            iterator = SSETokenStream(
+                token_stream=token_stream,
+                metrics=self.metrics,
+                skill_id=payload.skill_id,
+                started_at=started,
+            )
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            headers = {
+                "X-Response-Ms": str(elapsed_ms),
+                "X-Request-Id": request_id,
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            }
+            return StreamingResponse(iterator, media_type="text/event-stream", headers=headers)
+        except ModelError as exc:
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            self.metrics.record_request(skill_id=payload.skill_id, ms=elapsed_ms, error=True)
+            raise HTTPException(status_code=500, detail="Model generation failed") from exc
+
+    async def health(self, request: Request) -> HealthResponse:
+        """Return health status and model runtime information.
+
+        Args:
+            request: Incoming request.
+
+        Returns:
+            HealthResponse: Current health payload.
+        """
+        _ = request
+        model_stats = self.model_manager.get_stats()
+        metrics_summary = self.metrics.get_summary()
+        self.metrics.set_avg_tokens_per_sec(float(model_stats.get("avg_tokens_per_sec", 0.0)))
+
+        return HealthResponse(
+            status="ok",
+            model=str(model_stats.get("model", "google/gemma-4-2b-it")),
+            quantization=str(model_stats.get("quantization", "unknown")),
+            hardware=self.hardware,
+            model_load_ms=int(model_stats.get("model_load_ms", 0)),
+            avg_tokens_per_sec=float(model_stats.get("avg_tokens_per_sec", 0.0)),
+            uptime_seconds=int(metrics_summary.get("uptime_seconds", int(time.time() - self._started_at))),
+            last_request_ms=int(metrics_summary.get("last_request_ms", 0)),
         )
 
-    def stream_chat(
-        self,
-        messages: list[dict[str, str]],
-        *,
-        max_tokens: int = 512,
-    ) -> Iterable[str]:
-        stream = self._llm.create_chat_completion(
-            messages=messages,
-            stream=True,
-            temperature=0.2,
-            top_p=0.9,
-            max_tokens=max_tokens,
-        )
-        for chunk in stream:
-            choices = chunk.get("choices") or []
-            if not choices:
-                continue
-            delta = choices[0].get("delta") or {}
-            text = delta.get("content")
-            if text:
-                yield text
+    async def admin(self, request: Request) -> AdminResponse:
+        """Return extended admin metrics for local monitoring.
 
+        Args:
+            request: Incoming request.
 
-@dataclass
-class RuntimeState:
-    hardware: HardwareProfile | None = None
-    model_backend: ModelBackend | None = None
-    model_load_ms: int = 0
-    started_at: float = field(default_factory=time.time)
-    total_requests: int = 0
-    errors: int = 0
-    total_response_ms: int = 0
-    last_request_ms: int = 0
-    total_tokens: int = 0
-    total_generation_seconds: float = 0.0
-    skill_usage: Counter[str] = field(default_factory=Counter)
-    hallucination_guards_triggered: int = 0
-    generation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+        Returns:
+            AdminResponse: Extended health + metrics payload.
+        """
+        _ = request
+        health_payload = await self.health(request)
+        metrics_summary = self.metrics.get_summary()
 
-
-def _mlx_model_candidates(quantization: str) -> list[str]:
-    if quantization == "INT4-mlx":
-        return [
-            os.getenv("MLX_INT4_MODEL_ID", "mlx-community/gemma-4-2b-it-4bit"),
-            "google/gemma-4-2b-it",
-        ]
-    return [
-        os.getenv("MLX_INT8_MODEL_ID", "mlx-community/gemma-4-2b-it-8bit"),
-        "google/gemma-4-2b-it",
-    ]
-
-
-def _gguf_path_candidates() -> list[str]:
-    return [
-        os.getenv("GGUF_MODEL_PATH", "").strip(),
-        "gemma-4-2b-it.Q4_K_M.gguf",
-        "models/gemma-4-2b-it.Q4_K_M.gguf",
-        "backend/models/gemma-4-2b-it.Q4_K_M.gguf",
-    ]
-
-
-def _resolve_gguf_path() -> str:
-    candidates = [Path(path) for path in _gguf_path_candidates() if path]
-    for path in candidates:
-        if path.exists() and path.is_file():
-            return str(path)
-    raise RuntimeError(
-        "No GGUF model file found. Expected one of: "
-        + ", ".join(str(path) for path in candidates)
-    )
-
-
-def load_model_backend(hardware: HardwareProfile) -> tuple[ModelBackend, int]:
-    started = time.perf_counter()
-
-    if hardware.quantization in {"INT4-mlx", "INT8-mlx"}:
-        backend: ModelBackend = MLXModelBackend(
-            _mlx_model_candidates(hardware.quantization),
-            hardware.quantization,
-        )
-    else:
-        backend = LlamaCppBackend(_resolve_gguf_path(), hardware.quantization)
-
-    elapsed_ms = int((time.perf_counter() - started) * 1000)
-    return backend, elapsed_ms
-
-
-def _build_generation_messages(
-    system_prompt: str,
-    history: list[ChatMessage],
-) -> list[dict[str, str]]:
-    messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
-    messages.extend({"role": item.role, "content": item.content} for item in history)
-    return messages
-
-
-def _to_sse(event: str, payload: dict[str, Any]) -> str:
-    return f"event: {event}\\ndata: {json.dumps(payload)}\\n\\n"
-
-
-def _health_payload(runtime: RuntimeState) -> dict[str, Any]:
-    hardware = runtime.hardware
-    if hardware is None:
-        raise RuntimeError("Runtime hardware profile is unavailable")
-
-    avg_tps = 0.0
-    if runtime.total_generation_seconds > 0:
-        avg_tps = runtime.total_tokens / runtime.total_generation_seconds
-
-    return {
-        "status": "ok",
-        "model": APP_MODEL_NAME,
-        "quantization": hardware.quantization,
-        "hardware": {
-            "chip": hardware.chip,
-            "ram_total_gb": hardware.ram_total_gb,
-            "ram_available_gb": round(hardware.ram_available_gb, 2),
-            "cpu_cores": hardware.cpu_cores,
-            "metal_gpu": hardware.metal_gpu,
-        },
-        "model_load_ms": runtime.model_load_ms,
-        "avg_tokens_per_sec": round(avg_tps, 1),
-        "uptime_seconds": int(time.time() - runtime.started_at),
-        "last_request_ms": runtime.last_request_ms,
-    }
-
-
-def _admin_payload(runtime: RuntimeState) -> dict[str, Any]:
-    payload = _health_payload(runtime)
-    avg_response_ms = 0
-    if runtime.total_requests > 0:
-        avg_response_ms = int(runtime.total_response_ms / runtime.total_requests)
-
-    payload.update(
-        {
-            "total_requests": runtime.total_requests,
-            "errors": runtime.errors,
-            "avg_response_ms": avg_response_ms,
-            "skill_usage": {skill["id"]: runtime.skill_usage.get(skill["id"], 0) for skill in SKILLS},
-            "hallucination_guards_triggered": runtime.hallucination_guards_triggered,
-        }
-    )
-    return payload
-
-
-def _ensure_code_block(text: str) -> str:
-    if "```" in text:
-        return text
-    stripped = text.strip()
-    if not stripped:
-        return "```python\n# No code generated\n```"
-    return f"```python\\n{stripped}\\n```"
-
-
-async def _collect_chunks(
-    backend: ModelBackend,
-    messages: list[dict[str, str]],
-    *,
-    max_tokens: int,
-) -> list[str]:
-    loop = asyncio.get_running_loop()
-
-    def _run_sync() -> list[str]:
-        return [chunk for chunk in backend.stream_chat(messages, max_tokens=max_tokens)]
-
-    return await loop.run_in_executor(None, _run_sync)
-
-
-def create_app() -> FastAPI:
-    runtime = RuntimeState()
-
-    @asynccontextmanager
-    async def lifespan(_: FastAPI):
-        runtime.hardware = detect_hardware()
-        model_backend, model_load_ms = load_model_backend(runtime.hardware)
-        runtime.model_backend = model_backend
-        runtime.model_load_ms = model_load_ms
-
-        print("[boot] chip=", runtime.hardware.chip, sep="")
-        print("[boot] metal_gpu=", runtime.hardware.metal_gpu, sep="")
-        print("[boot] quantization=", runtime.hardware.quantization, sep="")
-        print("[boot] model_load_ms=", runtime.model_load_ms, sep="")
-        yield
-
-    app = FastAPI(title="Gemma 4 Local Chatbot", version="1.0.0", lifespan=lifespan)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["x-response-ms"],
-    )
-
-    app.state.runtime = runtime
-
-    @app.get("/health")
-    async def health() -> dict[str, Any]:
-        return _health_payload(runtime)
-
-    @app.get("/admin")
-    async def admin() -> dict[str, Any]:
-        return _admin_payload(runtime)
-
-    @app.post("/chat")
-    async def chat(body: ChatRequest):
-        if runtime.model_backend is None:
-            raise HTTPException(status_code=503, detail="Model is not ready")
-
-        system_prompt = get_skill_prompt(body.skill)
-        conversation = _build_generation_messages(system_prompt, body.messages)
-
-        async with runtime.generation_lock:
-            started = time.perf_counter()
-            runtime.total_requests += 1
-            runtime.skill_usage[body.skill] += 1
-
-            try:
-                chunks = await _collect_chunks(
-                    runtime.model_backend,
-                    conversation,
-                    max_tokens=512,
-                )
-                text = "".join(chunks)
-                if body.skill == "code":
-                    text = _ensure_code_block(text)
-                    chunks = [text]
-            except Exception as exc:
-                runtime.errors += 1
-                raise HTTPException(status_code=500, detail=f"Generation failed: {exc}") from exc
-
-            response_ms = int((time.perf_counter() - started) * 1000)
-            runtime.last_request_ms = response_ms
-            runtime.total_response_ms += response_ms
-            runtime.total_tokens += max(len(chunks), 1)
-            runtime.total_generation_seconds += max(response_ms / 1000.0, 0.001)
-
-        headers = {"x-response-ms": str(response_ms)}
-
-        if not body.stream:
-            return JSONResponse(content={"text": text, "skill": body.skill}, headers=headers)
-
-        async def sse_stream() -> Iterable[str]:
-            for chunk in chunks:
-                yield _to_sse("token", {"token": chunk})
-                await asyncio.sleep(0)
-            yield _to_sse("done", {"response_ms": response_ms})
-
-        return StreamingResponse(
-            sse_stream(),
-            media_type="text/event-stream",
-            headers=headers,
+        return AdminResponse(
+            status=health_payload.status,
+            model=health_payload.model,
+            quantization=health_payload.quantization,
+            hardware=health_payload.hardware,
+            model_load_ms=health_payload.model_load_ms,
+            avg_tokens_per_sec=health_payload.avg_tokens_per_sec,
+            uptime_seconds=health_payload.uptime_seconds,
+            last_request_ms=health_payload.last_request_ms,
+            total_requests=int(metrics_summary.get("total_requests", 0)),
+            errors=int(metrics_summary.get("errors", 0)),
+            avg_response_ms=float(metrics_summary.get("avg_response_ms", 0.0)),
+            requests_per_minute=float(metrics_summary.get("requests_per_minute", 0.0)),
+            skill_usage=dict(metrics_summary.get("skill_usage", {})),
+            hallucination_guards_triggered=int(
+                metrics_summary.get("hallucination_guards_triggered", 0)
+            ),
+            rate_limit_hits=int(metrics_summary.get("rate_limit_hits", 0)),
         )
 
-    return app
+    async def list_skills(self, request: Request) -> list[Skill]:
+        """Return supported skill definitions.
+
+        Args:
+            request: Incoming request.
+
+        Returns:
+            list[Skill]: List of available skills.
+        """
+        _ = request
+        return self.skills.all()
+
+    def _request_id(self, request: Request) -> str:
+        """Read request ID from state or generate a fallback UUID.
+
+        Args:
+            request: Incoming request.
+
+        Returns:
+            str: Request identifier.
+        """
+        request_id = getattr(request.state, "request_id", "")
+        if not request_id:
+            return str(uuid.uuid4())
+        return str(request_id)
+
+    def _client_ip(self, request: Request) -> str:
+        """Resolve best-effort client identifier from request metadata.
+
+        Args:
+            request: Incoming request.
+
+        Returns:
+            str: Client IP or localhost placeholder.
+        """
+        if request.client and request.client.host:
+            return request.client.host
+        return "127.0.0.1"
 
 
-app = create_app()
+chatbot_app = ChatbotApp()
+app = chatbot_app.build()

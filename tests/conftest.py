@@ -1,70 +1,92 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from pathlib import Path
-import sys
+import os
+from collections.abc import AsyncGenerator, Generator
 
+import pytest
 import pytest_asyncio
-from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+os.environ.setdefault("GEMMA_SKIP_MODEL_LOAD", "1")
 
-import backend.main as backend_main
-from backend.hardware import HardwareProfile
-
-
-class MockModelBackend:
-    model_name = "gemma-4-2b-it"
-    quantization = "INT4-mlx"
-
-    def stream_chat(self, messages: list[dict[str, str]], *, max_tokens: int = 512):
-        system = messages[0]["content"].lower() if messages else ""
-        user_text = ""
-        for message in reversed(messages):
-            if message.get("role") == "user":
-                user_text = message.get("content", "")
-                break
-
-        if "senior software engineer" in system:
-            chunks = ["```python\n", "print('mock code response')\n", "```"]
-        else:
-            base = f"Mock reply: {user_text}".strip()
-            chunks = [base[:8], base[8:20], base[20:]]
-
-        for chunk in chunks:
-            if chunk:
-                yield chunk
+from backend.main import app, chatbot_app
+from backend.metrics import metrics_collector
+from backend.quantization import QuantizationStrategy
+from backend.rate_limiter import rate_limiter
 
 
-@pytest_asyncio.fixture
-async def app(monkeypatch) -> AsyncIterator:
-    fake_hardware = HardwareProfile(
-        chip="Apple M2",
-        ram_total_gb=16,
-        ram_available_gb=9.2,
-        cpu_cores=8,
-        metal_gpu=True,
-        is_apple_silicon=True,
-        quantization="INT4-mlx",
-    )
+class MockQuantizationStrategy(QuantizationStrategy):
+    """Mock strategy used by tests to stream deterministic tokens."""
 
-    monkeypatch.setattr(backend_main, "detect_hardware", lambda: fake_hardware)
-    monkeypatch.setattr(
-        backend_main,
-        "load_model_backend",
-        lambda hardware: (MockModelBackend(), 35),
-    )
+    def __init__(self) -> None:
+        """Initialize mock state."""
+        self.loaded: bool = False
 
-    test_app = backend_main.create_app()
-    async with LifespanManager(test_app) as manager:
-        yield manager.app
+    def load_model(self, model_id: str) -> None:
+        """Mark model as loaded.
+
+        Args:
+            model_id: Model identifier.
+
+        Returns:
+            None.
+        """
+        _ = model_id
+        self.loaded = True
+
+    def generate(self, messages: list[dict], system: str) -> Generator[str, None, None]:
+        """Yield deterministic test tokens.
+
+        Args:
+            messages: Input messages.
+            system: System prompt.
+
+        Returns:
+            Generator[str, None, None]: Fixed output stream.
+        """
+        _ = messages
+        _ = system
+        for token in ["Hello", " world", "!"]:
+            yield token
 
 
-@pytest_asyncio.fixture
-async def client(app) -> AsyncIterator[AsyncClient]:
+@pytest.fixture(autouse=True)
+def reset_metrics() -> Generator[None, None, None]:
+    """Reset shared in-memory runtime state before each test."""
+    metrics_collector.reset()
+    rate_limiter.reset()
+    yield
+    metrics_collector.reset()
+    rate_limiter.reset()
+
+
+@pytest.fixture()
+def mock_quantization_strategy() -> MockQuantizationStrategy:
+    """Provide deterministic quantization strategy instance."""
+    return MockQuantizationStrategy()
+
+
+@pytest_asyncio.fixture()
+async def async_client(
+    mock_quantization_strategy: MockQuantizationStrategy,
+) -> AsyncGenerator[AsyncClient, None]:
+    """Create an async API client with mocked model manager.
+
+    Args:
+        mock_quantization_strategy: Strategy fixture.
+
+    Returns:
+        AsyncGenerator[AsyncClient, None]: Configured async client.
+    """
+    manager = chatbot_app.model_manager
+    manager._strategy = mock_quantization_strategy
+    manager._loaded = True
+    manager._model_name = "google/gemma-4-2b-it"
+    manager._quantization = "INT4"
+    manager._model_load_ms = 10
+    manager._last_tokens_per_sec = 50.0
+    manager._avg_tokens_per_sec = 45.5
+
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as async_client:
-        yield async_client
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        yield client
