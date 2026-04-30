@@ -159,26 +159,22 @@ class MLXQuantization(QuantizationStrategy):
                 log_detail=str(exc),
             ) from exc
 
-    def _build_messages(
-        self, messages: list[dict], system: str
-    ) -> list[dict[str, str]]:
-        """Build a chat payload expected by MLX chat templates.
-
-        Args:
-            messages: Sanitized chat messages.
-            system: Skill system prompt.
-
-        Returns:
-            list[dict[str, str]]: Ordered chat payload.
-        """
-        payload: list[dict[str, str]] = [{"role": "system", "content": system}]
+    # AFTER (gemma-compatible)
+    def _build_messages(self, messages, system):
+        payload: list[dict[str, str]] = []
+        system_injected = False
         for message in messages:
-            payload.append(
-                {
-                    "role": str(message.get("role", "user")),
-                    "content": str(message.get("content", "")),
-                }
-            )
+            role = str(message.get("role", "user"))
+            content = str(message.get("content", ""))
+            if not system_injected and role == "user":
+                content = f"{system}\n\n{content}" if system else content
+                system_injected = True
+            payload.append({"role": role, "content": content})
+
+        # Edge case: no user message yet — inject system as first user turn
+        if not system_injected and system:
+            payload.insert(0, {"role": "user", "content": system})
+
         return payload
 
 
@@ -309,27 +305,27 @@ class LlamaCppQuantization(QuantizationStrategy):
                 log_detail=str(exc),
             ) from exc
 
-    def _build_messages(
-        self, messages: list[dict], system: str
-    ) -> list[dict[str, str]]:
-        """Build chat payload expected by llama.cpp chat completion API.
+    # def _build_messages(
+    #     self, messages: list[dict], system: str
+    # ) -> list[dict[str, str]]:
+    #     """Build chat payload expected by llama.cpp chat completion API.
 
-        Args:
-            messages: Sanitized chat messages.
-            system: Skill system prompt.
+    #     Args:
+    #         messages: Sanitized chat messages.
+    #         system: Skill system prompt.
 
-        Returns:
-            list[dict[str, str]]: Ordered chat payload.
-        """
-        payload: list[dict[str, str]] = [{"role": "system", "content": system}]
-        for message in messages:
-            payload.append(
-                {
-                    "role": str(message.get("role", "user")),
-                    "content": str(message.get("content", "")),
-                }
-            )
-        return payload
+    #     Returns:
+    #         list[dict[str, str]]: Ordered chat payload.
+    #     """
+    #     payload: list[dict[str, str]] = [{"role": "system", "content": system}]
+    #     for message in messages:
+    #         payload.append(
+    #             {
+    #                 "role": str(message.get("role", "user")),
+    #                 "content": str(message.get("content", "")),
+    #             }
+    #         )
+    #     return payload
 
 
 class QuantizationSelector:

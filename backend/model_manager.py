@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
 import time
 from pathlib import Path
 from typing import Any, ClassVar, Generator
@@ -66,17 +65,10 @@ class ModelManager:
     _primary_model_id: ClassVar[str] = "gemma-2b"
     _gguf_profile_id: ClassVar[str] = "gemma-2b-gguf"
     _mlx_model_source: ClassVar[str] = "google/gemma-2b-it"
-    _gguf_repo_id: ClassVar[str] = "TheBloke/Gemma-2B-IT-GGUF"
     _gguf_filename: ClassVar[str] = "gemma-2b-it.Q4_K_M.gguf"
 
     _no_model_message: ClassVar[str] = (
         "No models found. Please install at least one model."
-    )
-    _download_in_progress_message: ClassVar[str] = (
-        "Model not available yet. Download in progress."
-    )
-    _download_failed_message: ClassVar[str] = (
-        "Model download failed. Check server logs for details."
     )
 
     def __init__(self) -> None:
@@ -87,6 +79,8 @@ class ModelManager:
         self._model_catalog: dict[str, ModelSpec] = {}
         self.available_models: dict[str, dict[str, Any]] = {}
 
+        # This cache holds one loaded strategy per logical model profile.
+        # The cache prevents reloading model weights on every chat request.
         self._model_cache: dict[str, QuantizationStrategy] = {}
         self._model_load_times_ms: dict[str, int] = {}
         self._active_model_id: str = ""
@@ -95,11 +89,6 @@ class ModelManager:
         self._avg_tokens_per_sec: float = 0.0
         self._generation_runs: int = 0
 
-        self._download_lock = threading.Lock()
-        self._download_in_progress: bool = False
-        self._download_error: str | None = None
-        self._download_thread: threading.Thread | None = None
-
     @classmethod
     def get_instance(cls) -> "ModelManager":
         if cls._instance is None:
@@ -107,6 +96,7 @@ class ModelManager:
         return cls._instance
 
     def configure(self, hardware: HardwareInfo) -> None:
+        # We keep hardware info so backend selection can be reproduced consistently.
         self._hardware = hardware
         self._logger.info(
             "detected_hardware chip=%s ram_total_gb=%s ram_available_gb=%s metal=%s cuda=%s apple_silicon=%s",
@@ -117,10 +107,19 @@ class ModelManager:
             hardware.cuda_gpu,
             hardware.is_apple_silicon,
         )
+        print(
+            "[ModelManager] detected_hardware "
+            f"chip={hardware.chip} "
+            f"ram_total_gb={hardware.ram_total_gb} "
+            f"metal_gpu={hardware.metal_gpu} "
+            f"cuda_gpu={hardware.cuda_gpu} "
+            f"apple_silicon={hardware.is_apple_silicon}"
+        )
         self._prepare_cache_dirs()
         self._build_model_catalog()
 
     def load(self, strategy: QuantizationStrategy) -> None:
+        # The manager must be configured before loading to avoid ambiguous runtime state.
         if self._hardware is None:
             raise ConfigurationError(
                 message="Hardware must be configured before model loading",
@@ -128,105 +127,114 @@ class ModelManager:
                 log_detail="configure() not called before load()",
             )
 
+        # We keep the originally selected strategy for compatibility with existing flow,
+        # but model loading is still resolved from the model catalog below.
         self._base_strategy = strategy
         self._prepare_cache_dirs()
-        self._logger.info("🔍 Detecting models...")
+
+        # This detection call is the only place where model availability is refreshed.
+        # Keeping it centralized avoids retry loops and inconsistent states.
+        print("[ModelManager] Detecting models...")
         self._build_model_catalog()
 
         default_model_id = self._normalize_requested_model_id(settings.default_model)
-        first_available = self._first_available_model_id()
+        selected_model_id: str | None = None
 
-        if first_available is None:
-            self._trigger_model_acquire(default_model_id)
-            self._build_model_catalog()
-            first_available = self._first_available_model_id()
+        # If default model is available we keep current behavior and load it first.
+        if self._is_model_available(default_model_id):
+            selected_model_id = default_model_id
+        else:
+            # If default is unavailable we safely fall back to the first available profile.
+            selected_model_id = self._first_available_model_id()
+            if selected_model_id:
+                self._logger.warning(
+                    "requested_default_unavailable fallback_model=%s requested=%s",
+                    selected_model_id,
+                    default_model_id,
+                )
+                print(
+                    "[ModelManager] requested default model is unavailable; "
+                    f"falling back to {selected_model_id}"
+                )
 
-            if first_available is None:
-                if self._download_in_progress:
-                    self._raise_download_in_progress_error()
-                if self._download_error:
-                    self._raise_download_failed_error()
-                self._raise_no_models_error()
+        if selected_model_id is None:
+            # We raise a clean controlled error that the app can convert into a user-friendly response.
+            self._raise_no_models_error()
 
-        selected_model_id = (
-            default_model_id
-            if self._is_model_available(default_model_id)
-            else (first_available or self._primary_model_id)
-        )
-
-        selected_spec = self._model_catalog.get(selected_model_id)
-        if selected_spec and selected_spec.backend == "mlx" and not self._is_mlx_cached():
-            self._trigger_model_acquire(selected_model_id)
-            self._raise_download_in_progress_error()
-
+        # This call activates cached model when possible and only loads once when needed.
         self.switch_model(selected_model_id)
 
     def switch_model(self, model_id: str) -> None:
+        # We refresh catalog before switching to pick up any environment/model-path changes.
         self._build_model_catalog()
         resolved_model_id = self._normalize_requested_model_id(model_id)
-        requested_spec = self._get_model_spec(model_id=resolved_model_id)
-
-        if self._download_in_progress and not self._is_cached_or_active(resolved_model_id):
-            self._raise_download_in_progress_error()
-        if self._download_error and not self._is_cached_or_active(resolved_model_id):
-            self._raise_download_failed_error()
 
         candidate_ids: list[str] = []
-        if requested_spec.available:
+
+        # Requested model is used only when it is known and marked available.
+        requested_spec = self._model_catalog.get(resolved_model_id)
+        if requested_spec is not None and requested_spec.available:
             candidate_ids.append(resolved_model_id)
         else:
-            fallback = self._first_available_model_id(exclude={resolved_model_id})
-            if fallback:
+            # Unknown or unavailable model IDs do not crash the request path.
+            # We always fall back to first available model when possible.
+            fallback = self._first_available_model_id()
+            if fallback is not None:
+                candidate_ids.append(fallback)
                 self._logger.warning(
-                    "⚠️ Falling back to %s because requested model %s is unavailable",
+                    "requested_model_unavailable fallback_model=%s requested=%s",
                     fallback,
                     resolved_model_id,
                 )
-                candidate_ids.append(fallback)
-            else:
-                self._trigger_model_acquire(resolved_model_id)
-                if self._download_in_progress:
-                    self._raise_download_in_progress_error()
-                if self._download_error:
-                    self._raise_download_failed_error()
-                self._raise_no_models_error()
+                print(
+                    "[ModelManager] requested model is unavailable; "
+                    f"falling back to {fallback}"
+                )
 
+        if not candidate_ids:
+            self._raise_no_models_error()
+
+        # We append other available models as backup candidates so one load failure
+        # does not block service startup when another valid profile exists.
         for fallback_id in self._ordered_available_model_ids(
             exclude=set(candidate_ids)
         ):
             candidate_ids.append(fallback_id)
 
         for candidate_id in candidate_ids:
+            # Cache-first activation avoids unnecessary model reload and keeps latency low.
             if self._activate_cached_model(candidate_id):
                 return
 
-            spec = self._get_model_spec(candidate_id)
+            spec = self._get_model_spec(model_id=candidate_id)
             if not spec.available:
                 continue
-
-            if spec.backend == "mlx" and not self._is_mlx_cached():
-                self._trigger_model_acquire(candidate_id)
-                self._raise_download_in_progress_error()
 
             try:
                 self._load_and_activate_model(spec)
                 return
-            except Exception as exc:
+            except ModelError as exc:
+                # We mark failed candidates unavailable to prevent repeated failures
+                # during the same process lifetime.
                 self._logger.warning(
                     "model_load_failed model_id=%s backend=%s backend_type=%s error=%s",
                     candidate_id,
                     spec.backend,
                     self._backend_type(spec.backend),
-                    str(exc),
+                    exc.log_detail or exc.message,
+                )
+                print(
+                    "[ModelManager] model load failed "
+                    f"model_id={candidate_id} error={exc.log_detail or exc.message}"
                 )
                 self._mark_model_unavailable(candidate_id)
 
-        self._trigger_model_acquire(resolved_model_id)
-        if self._download_in_progress:
-            self._raise_download_in_progress_error()
-        if self._download_error:
-            self._raise_download_failed_error()
-        self._raise_no_models_error()
+        # If every candidate failed we raise one clean error with deterministic wording.
+        raise ModelError(
+            message="Failed to load any available model",
+            status_code=503,
+            log_detail="all_model_candidates_failed",
+        )
 
     def generate_stream(
         self,
@@ -358,7 +366,6 @@ class ModelManager:
         available = self._detect_available_models()
         self.available_models = available
 
-        prefers_mlx = self._should_prefer_mlx_backend()
         has_mlx = self._primary_model_id in available
         has_gguf = self._gguf_profile_id in available
 
@@ -366,10 +373,13 @@ class ModelManager:
         selected_source = ""
         selected_quantization = ""
 
-        if prefers_mlx and has_mlx:
+        # MLX is intentionally preferred whenever import is available.
+        # This ensures Apple Silicon uses mlx_lm.load("google/gemma-2b-it") path.
+        if has_mlx:
             selected_backend = "mlx"
             selected_source = self._mlx_model_source
             selected_quantization = self._mlx_quantization()
+        # GGUF is kept only as a local-file fallback and never auto-downloaded.
         elif has_gguf:
             selected_backend = "llama.cpp"
             selected_source = self._gguf_model_path().as_posix()
@@ -394,45 +404,57 @@ class ModelManager:
             self._model_catalog[model_id] = ModelSpec(
                 model_id=model_id,
                 label=template["label"],
-                backend=(selected_backend or ("mlx" if prefers_mlx else "llama.cpp")),
-                source=(
-                    selected_source
-                    or (
-                        self._mlx_model_source
-                        if prefers_mlx
-                        else self._gguf_model_path().as_posix()
-                    )
-                ),
-                quantization=(
-                    selected_quantization
-                    or (self._mlx_quantization() if prefers_mlx else "Q4_K_M")
-                ),
+                backend=(selected_backend or "mlx"),
+                source=(selected_source or self._mlx_model_source),
+                quantization=(selected_quantization or self._mlx_quantization()),
                 description=description,
                 is_default=(default_model == model_id),
                 available=is_available,
                 alias_of=alias_of,
             )
 
-        if self.available_models:
-            self._logger.info(
-                "available_models ids=%s", list(self.available_models.keys())
-            )
+        available_ids = list(self.available_models.keys())
+        if available_ids:
+            print(f"[ModelManager] available_models={available_ids}")
         else:
-            self._logger.warning("available_models ids=[]")
+            print("[ModelManager] available_models=[]")
+        if selected_backend:
+            print(
+                "[ModelManager] selected_backend "
+                f"backend={selected_backend} source={selected_source or self._mlx_model_source}"
+            )
 
     def _detect_available_models(self) -> dict[str, dict[str, Any]]:
-        self._logger.info("🔍 Detecting models...")
+        # This function detects available models on the system.
+        # It prioritizes MLX because it is optimized for Apple Silicon and
+        # because mlx_lm.load handles model download/cache internally.
+        print("[ModelManager] Detecting models...")
 
         available: dict[str, dict[str, Any]] = {}
 
+        # Test mode must stay deterministic even when mlx_lm is not installed.
+        # In this mode MLXQuantization runs with mock behavior and never imports mlx.
+        if settings.skip_model_load:
+            available[self._primary_model_id] = {
+                "type": "mlx",
+                "id": self._mlx_model_source,
+            }
+            print("[ModelManager] skip_model_load enabled; exposing MLX profile")
+            return available
+
+        # MLX availability is determined purely by import check.
+        # We intentionally do not require local files for MLX because huggingface cache
+        # may be empty on first boot and mlx_lm.load will populate it on demand.
         if self._is_mlx_dependency_available():
             available[self._primary_model_id] = {
                 "type": "mlx",
                 "id": self._mlx_model_source,
             }
 
+        # GGUF path is intentionally disabled from any auto-download flow.
+        # We only expose GGUF when a valid local file already exists.
         gguf_path = self._gguf_model_path()
-        if settings.skip_model_load or gguf_path.exists():
+        if gguf_path.exists():
             available[self._gguf_profile_id] = {
                 "type": "gguf",
                 "file": gguf_path.as_posix(),
@@ -466,39 +488,14 @@ class ModelManager:
             return self._primary_model_id
         return model_id
 
-    def _should_prefer_mlx_backend(self) -> bool:
-        if self._hardware is None:
-            return False
-
-        return (
-            self._hardware.is_apple_silicon
-            and self._hardware.metal_gpu
-            and not isinstance(self._base_strategy, LlamaCppQuantization)
-        )
-
     def _is_mlx_dependency_available(self) -> bool:
         try:
             from mlx_lm import load  # type: ignore
 
             _ = load
             return True
-        except Exception:
-            return False
-
-    def _is_mlx_cached(self) -> bool:
-        if settings.skip_model_load:
-            return True
-
-        try:
-            from huggingface_hub import snapshot_download  # type: ignore
-
-            snapshot_download(
-                repo_id=self._mlx_model_source,
-                local_files_only=True,
-                cache_dir=self._model_cache_dir().as_posix(),
-            )
-            return True
-        except Exception:
+        except Exception as exc:
+            self._logger.warning("mlx_dependency_unavailable error=%s", str(exc))
             return False
 
     def _activate_cached_model(self, model_id: str) -> bool:
@@ -521,26 +518,50 @@ class ModelManager:
                 self._backend_type(spec.backend),
                 spec.source,
             )
+            print(
+                "[ModelManager] selected_model "
+                f"model_id={spec.model_id} backend={spec.backend} "
+                f"backend_type={self._backend_type(spec.backend)} cached=true"
+            )
 
         return True
-
-    def _is_cached_or_active(self, model_id: str) -> bool:
-        if self._active_model_id == model_id and self._active_strategy is not None:
-            return True
-        return model_id in self._model_cache
 
     def _load_and_activate_model(self, spec: ModelSpec) -> None:
         strategy = self._create_strategy(spec=spec)
 
         started = time.perf_counter()
-        strategy.load_model(spec.source)
+        try:
+            strategy.load_model(spec.source)
+        except ModelError as exc:
+            if spec.backend == "mlx":
+                raise ModelError(
+                    message="Failed to load MLX model",
+                    status_code=503,
+                    log_detail=exc.log_detail or exc.message,
+                ) from exc
+            raise
+        except Exception as exc:
+            if spec.backend == "mlx":
+                raise ModelError(
+                    message="Failed to load MLX model",
+                    status_code=503,
+                    log_detail=str(exc),
+                ) from exc
+            raise ModelError(
+                message="Failed to load model",
+                status_code=503,
+                log_detail=str(exc),
+            ) from exc
+
         elapsed_ms = int((time.perf_counter() - started) * 1000)
 
+        # We cache by logical profile so profile switches avoid repeated load cost.
         self._model_cache[spec.model_id] = strategy
         self._model_load_times_ms[spec.model_id] = elapsed_ms
         self._active_strategy = strategy
         self._active_model_id = spec.model_id
 
+        # Warm-up keeps first real user request latency predictable.
         warmup_started = time.perf_counter()
         warmup_tokens = 0
         for token in strategy.generate(
@@ -564,6 +585,11 @@ class ModelManager:
             spec.source,
             elapsed_ms,
             self._last_tokens_per_sec,
+        )
+        print(
+            "[ModelManager] selected_model "
+            f"model_id={spec.model_id} backend={spec.backend} "
+            f"backend_type={self._backend_type(spec.backend)} load_ms={elapsed_ms}"
         )
 
     def _mark_model_unavailable(self, model_id: str) -> None:
@@ -618,133 +644,11 @@ class ModelManager:
     def _gguf_model_path(self) -> Path:
         return self._model_root_dir() / self._gguf_filename
 
-    def _hf_token(self) -> str:
-        configured = str(settings.hf_token).strip()
-        if configured:
-            return configured
-        return os.getenv("HF_TOKEN", "").strip()
-
-    def _trigger_model_acquire(self, requested_model_id: str) -> None:
-        if settings.skip_model_load:
-            return
-
-        if self._download_in_progress:
-            return
-
-        target = self._primary_model_id
-        if requested_model_id == self._gguf_profile_id:
-            target = self._gguf_profile_id
-        elif not (
-            self._should_prefer_mlx_backend() and self._is_mlx_dependency_available()
-        ):
-            target = self._gguf_profile_id
-
-        self._start_background_download(target)
-
-    def _start_background_download(self, target_model_id: str) -> None:
-        with self._download_lock:
-            if self._download_in_progress:
-                return
-
-            self._download_in_progress = True
-            self._download_error = None
-            self._download_thread = threading.Thread(
-                target=self._download_worker,
-                args=(target_model_id,),
-                daemon=True,
-                name="gemma-model-download",
-            )
-            self._download_thread.start()
-
-    def _download_worker(self, target_model_id: str) -> None:
-        self._logger.info(" Downloading model... target=%s", target_model_id)
-        try:
-            self._ensure_model_available(target_model_id)
-            self._logger.info(" Model ready")
-        except ModelError as exc:
-            with self._download_lock:
-                self._download_error = exc.log_detail or exc.message
-            self._logger.error(" Download failed: %s", exc.log_detail or exc.message)
-        except Exception as exc:
-            with self._download_lock:
-                self._download_error = str(exc)
-            self._logger.error(" Download failed: %s", str(exc))
-        finally:
-            with self._download_lock:
-                self._download_in_progress = False
-            self._build_model_catalog()
-
-    def _ensure_model_available(self, model_id: str) -> None:
-        self._prepare_cache_dirs()
-        token = self._hf_token()
-
-        if model_id == self._gguf_profile_id:
-            model_path = self._gguf_model_path()
-            if model_path.exists():
-                return
-
-            try:
-                from huggingface_hub import hf_hub_download  # type: ignore
-
-                hf_hub_download(
-                    repo_id=self._gguf_repo_id,
-                    filename=self._gguf_filename,
-                    local_dir=model_path.parent.as_posix(),
-                    cache_dir=self._model_cache_dir().as_posix(),
-                    token=token or None,
-                )
-            except Exception as exc:
-                raise ModelError(
-                    message="Failed to download/load GGUF model",
-                    status_code=503,
-                    log_detail=str(exc),
-                ) from exc
-
-            if not model_path.exists():
-                raise ModelError(
-                    message="Failed to download/load GGUF model",
-                    status_code=503,
-                    log_detail=f"gguf_missing_after_download path={model_path}",
-                )
-            return
-
-        try:
-            from huggingface_hub import login  # type: ignore
-            from mlx_lm import load  # type: ignore
-
-            if token:
-                login(token=token, add_to_git_credential=False)
-
-            model, tokenizer = load(self._mlx_model_source)
-            del model
-            del tokenizer
-        except Exception as exc:
-            raise ModelError(
-                message="Failed to download/load MLX model",
-                status_code=503,
-                log_detail=str(exc),
-            ) from exc
-
     def _raise_no_models_error(self) -> None:
         raise ModelError(
             message=self._no_model_message,
             status_code=503,
             log_detail="no_available_models",
-        )
-
-    def _raise_download_in_progress_error(self) -> None:
-        raise ModelError(
-            message=self._download_in_progress_message,
-            status_code=503,
-            log_detail="download_in_progress=true",
-        )
-
-    def _raise_download_failed_error(self) -> None:
-        detail = self._download_error or "unknown download error"
-        raise ModelError(
-            message=self._download_failed_message,
-            status_code=503,
-            log_detail=detail,
         )
 
 
