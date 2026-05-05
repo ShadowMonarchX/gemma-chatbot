@@ -1,0 +1,357 @@
+<style>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0
+  }
+
+  .wrap {
+    padding: 1rem 0;
+    font-family: var(--font-sans)
+  }
+
+  .sec-label {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .09em;
+    color: var(--color-text-tertiary);
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    padding-left: 2px
+  }
+
+  .zone {
+    border: 0.5px solid var(--color-border-secondary);
+    border-radius: var(--border-radius-lg);
+    padding: 10px 12px;
+    margin-bottom: 8px
+  }
+
+  .row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap
+  }
+
+  .card {
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-md);
+    padding: 8px 11px;
+    flex: 1;
+    min-width: 120px;
+    cursor: pointer;
+    transition: border-color .15s, background .15s
+  }
+
+  .card:hover {
+    border-color: var(--color-border-primary);
+    background: var(--color-background-secondary)
+  }
+
+  .card.lit {
+    border-color: var(--color-border-info);
+    background: var(--color-background-info)
+  }
+
+  .card-t {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-primary)
+  }
+
+  .card-s {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    margin-top: 3px;
+    line-height: 1.4
+  }
+
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 6px;
+    border-radius: 99px;
+    margin-top: 5px
+  }
+
+  .ba {
+    background: #FAEEDA;
+    color: #854F0B
+  }
+
+  .bt {
+    background: #E1F5EE;
+    color: #0F6E56
+  }
+
+  .bp {
+    background: #EEEDFE;
+    color: #534AB7
+  }
+
+  .bc {
+    background: #FAECE7;
+    color: #993C1D
+  }
+
+  .bb {
+    background: #E6F1FB;
+    color: #185FA5
+  }
+
+  .bg {
+    background: #EAF3DE;
+    color: #3B6D11
+  }
+
+  @media(prefers-color-scheme:dark) {
+    .ba {
+      background: #412402;
+      color: #FAC775
+    }
+
+    .bt {
+      background: #04342C;
+      color: #9FE1CB
+    }
+
+    .bp {
+      background: #26215C;
+      color: #CECBF6
+    }
+
+    .bc {
+      background: #4A1B0C;
+      color: #F5C4B3
+    }
+
+    .bb {
+      background: #042C53;
+      color: #B5D4F4
+    }
+
+    .bg {
+      background: #173404;
+      color: #C0DD97
+    }
+  }
+
+  .flow-arrow {
+    text-align: center;
+    font-size: 11px;
+    color: var(--color-text-tertiary);
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px
+  }
+
+  .detail {
+    border: 0.5px solid var(--color-border-info);
+    border-radius: var(--border-radius-lg);
+    padding: 13px 15px;
+    margin-top: 8px;
+    background: var(--color-background-primary);
+    display: none
+  }
+
+  .detail.on {
+    display: block
+  }
+
+  .det-t {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    margin-bottom: 7px
+  }
+
+  .det-b {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    line-height: 1.65
+  }
+
+  .det-b code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--color-background-secondary);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--color-text-primary)
+  }
+
+  .det-b ul {
+    padding-left: 14px;
+    margin-top: 5px
+  }
+
+  .det-b li {
+    margin-bottom: 3px
+  }
+
+  .xbtn {
+    float: right;
+    font-size: 11px;
+    color: var(--color-text-tertiary);
+    cursor: pointer
+  }
+
+  .xbtn:hover {
+    color: var(--color-text-primary)
+  }
+
+  .mcp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 6px
+  }
+</style>
+<div class="wrap">
+
+  <div class="sec-label">1 · Users &amp; clients</div>
+  <div class="zone" style="background:var(--color-background-secondary)">
+    <div class="row">
+      <div class="card" onclick="show('users')">
+        <div class="card-t">Users / Apps</div>
+        <div class="card-s">Web, mobile, API callers</div>
+        <span class="badge bb">HTTPS</span>
+      </div>
+      <div class="card" onclick="show('apigw')">
+        <div class="card-t">AWS API Gateway</div>
+        <div class="card-s">Auth, rate-limit, routing</div>
+        <span class="badge ba">JWT / API keys</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="flow-arrow">↓ &nbsp; request enters agent loop</div>
+
+  <div class="sec-label">2 · AI agent core — runs on EC2 GPU (g5 / p4d)</div>
+  <div class="zone" style="background:var(--color-background-secondary);border-color:var(--color-border-info)">
+    <div class="row">
+      <div class="card" onclick="show('gemma')">
+        <div class="card-t">Gemma 3 27B-IT</div>
+        <div class="card-s">Google open-weight, instruction-tuned</div>
+        <span class="badge bp">vLLM · OpenAI-compat API</span>
+      </div>
+      <div class="card" onclick="show('agent')">
+        <div class="card-t">Agent loop</div>
+        <div class="card-s">Think → call tool → observe → repeat</div>
+        <span class="badge bt">LangGraph / LlamaIndex</span>
+      </div>
+      <div class="card" onclick="show('memory')">
+        <div class="card-t">Agent memory</div>
+        <div class="card-s">Short-term context + long-term store</div>
+        <span class="badge ba">Redis + pgvector</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="flow-arrow">↕ &nbsp; tool calls via MCP protocol</div>
+
+  <div class="sec-label">3 · MCP tool servers — real-time data &amp; actions</div>
+  <div class="zone" style="background:var(--color-background-secondary)">
+    <div class="mcp-grid">
+      <div class="card" onclick="show('mcp_web')">
+        <div class="card-t">Web search</div>
+        <div class="card-s">Live search, news</div>
+        <span class="badge bc">Brave / Serper MCP</span>
+      </div>
+      <div class="card" onclick="show('mcp_db')">
+        <div class="card-t">Database</div>
+        <div class="card-s">SQL queries, writes</div>
+        <span class="badge bc">Postgres MCP</span>
+      </div>
+      <div class="card" onclick="show('mcp_code')">
+        <div class="card-t">Code executor</div>
+        <div class="card-s">Run Python sandboxed</div>
+        <span class="badge bc">E2B / Docker MCP</span>
+      </div>
+      <div class="card" onclick="show('mcp_api')">
+        <div class="card-t">External APIs</div>
+        <div class="card-s">Slack, GitHub, Jira</div>
+        <span class="badge bc">Custom MCP servers</span>
+      </div>
+      <div class="card" onclick="show('mcp_rag')">
+        <div class="card-t">RAG / vector</div>
+        <div class="card-s">Your documents, PDFs</div>
+        <span class="badge bc">Pinecone / FAISS MCP</span>
+      </div>
+      <div class="card" onclick="show('mcp_fs')">
+        <div class="card-t">File system</div>
+        <div class="card-s">Read/write S3, EFS</div>
+        <span class="badge bc">AWS S3 MCP</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="flow-arrow">↕ &nbsp; model weights + logs + storage</div>
+
+  <div class="sec-label">4 · AWS infrastructure</div>
+  <div class="zone" style="background:var(--color-background-secondary)">
+    <div class="row">
+      <div class="card" onclick="show('ec2')">
+        <div class="card-t">EC2 GPU fleet</div>
+        <div class="card-s">g5.12xl or p4d.24xl</div>
+        <span class="badge ba">A10G / A100 GPUs</span>
+      </div>
+      <div class="card" onclick="show('s3store')">
+        <div class="card-t">S3 model storage</div>
+        <div class="card-s">Weights, LoRA adapters</div>
+        <span class="badge ba">s3://models/gemma3-27b/</span>
+      </div>
+      <div class="card" onclick="show('alb')">
+        <div class="card-t">ALB + auto-scaling</div>
+        <div class="card-s">Scale GPU nodes on load</div>
+        <span class="badge bg">ASG policy</span>
+      </div>
+      <div class="card" onclick="show('obs')">
+        <div class="card-t">Observability</div>
+        <div class="card-s">Traces, GPU util, cost</div>
+        <span class="badge bg">CloudWatch + LangSmith</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="detail" class="detail">
+    <span class="xbtn" onclick="close_()">✕</span>
+    <div class="det-t" id="dt"></div>
+    <div class="det-b" id="db"></div>
+  </div>
+</div>
+
+<script>
+  const D = {
+    users: { t: "Users & client apps", b: `Any client hits your endpoint. The agent returns final text once its reasoning loop finishes — could take multiple tool calls before it responds.<br><ul><li>Stream intermediate steps so users see progress: <code>stream_intermediate_steps=True</code></li><li>WebSocket or SSE for real-time token streaming from Gemma</li><li>Include a session/conversation ID so the agent can resume context</li></ul>` },
+    apigw: { t: "AWS API Gateway + auth", b: `Front door to your agent. Key jobs:<br><ul><li>Validate JWT tokens (Cognito or custom authorizer Lambda)</li><li>Rate-limit per user — without this, one user can spin up an infinite agent loop burning your GPU</li><li>Route to ALB → EC2 agent server</li><li>Set timeout: agentic calls can take 30–120s — bump API GW timeout to 29s max, then use async job pattern for longer runs</li></ul>Tip: for long agent tasks, API GW receives the request, drops it in SQS, returns a job_id immediately. Client polls <code>/status/{job_id}</code>.` },
+    gemma: { t: "Gemma 3 27B-IT on vLLM", b: `Gemma 3 27B Instruction-Tuned is Google's latest open-weight model. Key properties for agentic use:<br><ul><li><strong>128k context window</strong> — fits many tool results + conversation history</li><li>Supports function/tool calling natively in its chat template</li><li>Multimodal (text + image input)</li></ul>Deploy with vLLM:<br><code>python -m vllm.entrypoints.openai.api_server \\<br>&nbsp; --model google/gemma-3-27b-it \\<br>&nbsp; --tensor-parallel-size 4 \\<br>&nbsp; --max-model-len 65536 \\<br>&nbsp; --port 8000</code><br><br>Needs 4× A10G (24GB each = 96GB total) for 27B in BF16. Or 2× A100 80GB.` },
+    agent: { t: "Agent loop — the core logic", b: `The agentic loop is: <strong>Think → Tool call → Observe → Think again → Final answer</strong><br><br>Use <strong>LangGraph</strong> (best for complex multi-step agents) or <strong>LlamaIndex AgentRunner</strong>:<br><ul><li>Agent receives user message</li><li>Gemma decides: answer directly OR call a tool (MCP server)</li><li>Tool result injected back into context</li><li>Loop continues until Gemma emits a final answer (no more tool calls)</li></ul>Key config: <code>max_iterations=10</code> to prevent infinite loops. Each iteration = 1 LLM call + optional tool call. Guard with timeout + cost limits.` },
+    memory: { t: "Agent memory — short + long term", b: `Two types of memory your agent needs:<br><ul><li><strong>Short-term (context window)</strong>: The running conversation + all tool call results for this session. Stored in Gemma's 128k context. Managed automatically by LangGraph's message history.</li><li><strong>Long-term (external store)</strong>: Facts the agent should remember across sessions. Stored in pgvector (Postgres with vector extension) or Redis. Agent uses a "recall memory" MCP tool to search it semantically.</li></ul>Pattern: after each session, extract key facts → embed them → store in pgvector → next session retrieves top-k relevant memories via similarity search before starting.` },
+    mcp_web: { t: "Web search MCP server", b: `Gives your agent live internet access. The agent calls this when it needs current information.<br><br>Setup with Brave Search MCP:<br><code>npx @modelcontextprotocol/server-brave-search</code><br><br>The agent receives structured search results as tool output, then reasons over them. Example agent thought: <em>"User asked about today's stock price → call web_search('AAPL stock price today') → got result → include in answer"</em><br><br>Also useful: Firecrawl MCP for scraping full web pages, not just search snippets.` },
+    mcp_db: { t: "Database MCP server", b: `Agent can query and write your Postgres/MySQL database directly using natural language → SQL.<br><br><code>npx @modelcontextprotocol/server-postgres postgresql://user:pass@host/db</code><br><br>The agent receives the schema, generates SQL, executes it, and gets results back as JSON. Critical safety rule: <strong>run DB MCP in read-only mode by default</strong>. Only enable write access for specific verified agents/users. Always validate SQL before execution in production.` },
+    mcp_code: { t: "Code executor MCP", b: `Agent can write and run Python code to solve problems — calculations, data analysis, chart generation, file processing.<br><br>Use E2B (cloud sandboxes) or a Docker container with restricted network:<br><ul><li>E2B: managed, 1s cold start, fully sandboxed: <code>pip install e2b-code-interpreter</code></li><li>Docker: self-hosted, cheaper, more control. Run with <code>--network none --memory 512m</code></li></ul>Agent pattern: write code → execute → read output/error → fix and retry. Very powerful for data tasks.` },
+    mcp_api: { t: "External API MCP servers", b: `Connect your agent to the tools your team uses:<br><ul><li><strong>Slack MCP</strong>: agent reads channels, posts messages, looks up users</li><li><strong>GitHub MCP</strong>: create issues, PRs, read code, review diffs</li><li><strong>Jira MCP</strong>: create/update tickets, query sprint status</li><li><strong>Gmail MCP</strong>: read/send emails (with OAuth)</li></ul>All official MCP servers: <code>github.com/modelcontextprotocol/servers</code><br><br>Build custom ones with the MCP Python SDK: <code>pip install mcp</code> — a custom MCP server is ~50 lines of Python exposing your internal APIs.` },
+    mcp_rag: { t: "RAG / vector search MCP", b: `Your agent retrieves relevant docs from your knowledge base before answering.<br><br>Flow: User asks question → agent calls <code>search_knowledge_base(query)</code> → MCP server embeds query → searches Pinecone/FAISS → returns top 5 relevant chunks → Gemma reads them and answers.<br><br>Embed with: <code>sentence-transformers/all-MiniLM-L6-v2</code> (fast, free) or <code>text-embedding-3-small</code> via OpenAI API. Store in Pinecone (managed) or FAISS (self-hosted on EC2).` },
+    mcp_fs: { t: "File system / S3 MCP", b: `Agent reads and writes files — PDFs, CSVs, images, outputs.<br><ul><li>Mount EFS (Elastic File System) on EC2 → local filesystem MCP server</li><li>Or use S3 MCP: agent calls <code>read_file('s3://bucket/report.pdf')</code></li><li>Combine with code executor: agent downloads CSV from S3 → runs pandas analysis → saves chart back to S3 → returns signed URL to user</li></ul>` },
+    ec2: { t: "EC2 GPU instance sizing for Gemma 3 27B", b: `Model size guide:<br><ul><li><strong>g5.12xlarge</strong> — 4× A10G (96GB total VRAM) → Gemma 3 27B BF16. ~$5.67/hr. Best price/perf.</li><li><strong>g5.48xlarge</strong> — 8× A10G (192GB) → run 2 parallel replicas. ~$16.29/hr.</li><li><strong>p4d.24xlarge</strong> — 8× A100 (320GB) → production multi-user at scale. ~$32.77/hr.</li></ul>For cost savings: use Spot instances (70% cheaper) for non-critical workloads. Use On-Demand for production. Savings Plans for baseline load.<br><br>Cold-start: Gemma 3 27B loads from EFS/NVMe in ~60–90s. Use a warm pool (ASG min=1) so at least one instance is always ready.` },
+    s3store: { t: "S3 model storage", b: `Store all model artifacts in S3, sync to EC2 on launch:<br><code>aws s3 sync s3://my-models/gemma3-27b /mnt/models/gemma3-27b</code><br><br>Gemma 3 27B weights = ~54GB (BF16). On g5.12xlarge with 25Gbps networking → ~20s sync from S3. Use EFS if you have many instances — write once, mount everywhere, no re-download.<br><br>Also store: LoRA adapters (per-customer fine-tuning), tokenizer configs, quantized AWQ versions (cuts to ~14GB for g5.2xlarge).` },
+    alb: { t: "Load balancer + auto-scaling", b: `ALB routes agent API requests across your GPU fleet. Auto-scaling triggers on:<br><ul><li>GPU utilization > 75% (custom CloudWatch metric via DCGM)</li><li>Request queue depth > 20 (SQS metric if using async pattern)</li><li>Scheduled scaling for known peak hours</li></ul>Scale-out takes ~3–4 min (EC2 launch + model load). Mitigate with: warm pool of pre-loaded instances (ASG warm pool feature), or keep min=2 for zero-wait scaling.<br><br>For agents: agentic calls are long (30–120s). Set ALB idle timeout to 300s and enable connection draining.` },
+    obs: { t: "Observability — traces, cost, GPU", b: `Three layers to monitor:<br><ul><li><strong>Agent traces (LangSmith)</strong>: Every agent step logged — which tool was called, what Gemma said, how long each step took. Critical for debugging loops and failures. <code>LANGCHAIN_TRACING_V2=true</code></li><li><strong>Model metrics (Prometheus + Grafana)</strong>: vLLM exposes <code>/metrics</code> — tokens/s, queue depth, TTFT (time-to-first-token), GPU utilization.</li><li><strong>Cost tracking</strong>: Tag EC2 instances per team/project. Set AWS Budget alerts. Gemma 3 27B on g5.12xlarge = ~$0.00016/token (all-in). Agent loop using 10 tool calls × 5k tokens each = ~$0.008 per agent run.</li></ul>` }
+  };
+  function show(k) {
+    const d = D[k];
+    document.getElementById('dt').textContent = d.t;
+    document.getElementById('db').innerHTML = d.b;
+    document.getElementById('detail').classList.add('on');
+    document.querySelectorAll('.card').forEach(c => c.classList.remove('lit'));
+    event.currentTarget.classList.add('lit');
+    document.getElementById('detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  function close_() {
+    document.getElementById('detail').classList.remove('on');
+    document.querySelectorAll('.card').forEach(c => c.classList.remove('lit'));
+  }
+</script>
