@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Generator
@@ -60,6 +61,7 @@ class MLXQuantization(QuantizationStrategy):
         self._model: object | None = None
         self._tokenizer: object | None = None
         self._stream_generate: object | None = None
+        self._generation_lock = threading.Lock()
         self._mock_mode: bool = (
             os.getenv("GEMMA_SKIP_MODEL_LOAD", "0") == "1"
             or os.getenv("SKIP_MODEL_LOAD", "0") == "1"
@@ -125,42 +127,43 @@ class MLXQuantization(QuantizationStrategy):
                 log_detail="stream_generate not initialized",
             )
 
-        payload = self._build_messages(messages=messages, system=system)
-        tokenizer = self._tokenizer
-        model = self._model
+        with self._generation_lock:
+            payload = self._build_messages(messages=messages, system=system)
+            tokenizer = self._tokenizer
+            model = self._model
+            self._prepare_generation_stream()
 
-        try:
-            prompt = getattr(tokenizer, "apply_chat_template")(
-                payload,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-        except TypeError:
-            prompt = getattr(tokenizer, "apply_chat_template")(
-                payload,
-                add_generation_prompt=True,
-            )
+            try:
+                prompt = getattr(tokenizer, "apply_chat_template")(
+                    payload,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            except TypeError:
+                prompt = getattr(tokenizer, "apply_chat_template")(
+                    payload,
+                    add_generation_prompt=True,
+                )
 
-        try:
-            stream = stream_generate_callable(
-                model,
-                tokenizer,
-                prompt=prompt,
-                max_tokens=self.max_tokens,
-            )
-            for chunk in stream:
-                text = str(getattr(chunk, "text", ""))
-                if text:
-                    yield text
-        except Exception as exc:
-            raise ModelError(
-                message="Token generation failed",
-                status_code=500,
-                log_detail=str(exc),
-            ) from exc
+            try:
+                stream = stream_generate_callable(
+                    model,
+                    tokenizer,
+                    prompt=prompt,
+                    max_tokens=self.max_tokens,
+                )
+                for chunk in stream:
+                    text = self._extract_chunk_text(chunk)
+                    if text:
+                        yield text
+            except Exception as exc:
+                raise ModelError(
+                    message="Token generation failed",
+                    status_code=500,
+                    log_detail=str(exc),
+                ) from exc
 
-    # AFTER (gemma-compatible)
-    def _build_messages(self, messages, system):
+    def _build_messages(self, messages: list[dict], system: str) -> list[dict[str, str]]:
         payload: list[dict[str, str]] = []
         system_injected = False
         for message in messages:
@@ -176,6 +179,37 @@ class MLXQuantization(QuantizationStrategy):
             payload.insert(0, {"role": "user", "content": system})
 
         return payload
+
+    @staticmethod
+    def _extract_chunk_text(chunk: object) -> str:
+        """Return generated text from MLX stream chunk variants."""
+        if isinstance(chunk, str):
+            return chunk
+
+        if isinstance(chunk, bytes):
+            return chunk.decode("utf-8", errors="ignore")
+
+        if isinstance(chunk, dict):
+            value = chunk.get("text") or chunk.get("content")
+            return str(value) if value else ""
+
+        value = getattr(chunk, "text", "")
+        return str(value) if value else ""
+
+    @staticmethod
+    def _prepare_generation_stream() -> None:
+        """Create MLX stream state for the current generation thread."""
+        try:
+            import mlx.core as mx  # type: ignore
+            import mlx_lm.generate as mlx_generate  # type: ignore
+
+            mlx_generate.generation_stream = mx.new_thread_local_stream(mx.default_device())
+        except Exception as exc:
+            raise ModelError(
+                message="MLX generation stream unavailable",
+                status_code=500,
+                log_detail=str(exc),
+            ) from exc
 
 
 class LlamaCppQuantization(QuantizationStrategy):
@@ -305,27 +339,25 @@ class LlamaCppQuantization(QuantizationStrategy):
                 log_detail=str(exc),
             ) from exc
 
-    # def _build_messages(
-    #     self, messages: list[dict], system: str
-    # ) -> list[dict[str, str]]:
-    #     """Build chat payload expected by llama.cpp chat completion API.
+    def _build_messages(
+        self,
+        messages: list[dict],
+        system: str,
+    ) -> list[dict[str, str]]:
+        """Build chat payload expected by llama.cpp chat completion API."""
+        payload: list[dict[str, str]] = []
+        if system:
+            payload.append({"role": "system", "content": system})
 
-    #     Args:
-    #         messages: Sanitized chat messages.
-    #         system: Skill system prompt.
+        for message in messages:
+            payload.append(
+                {
+                    "role": str(message.get("role", "user")),
+                    "content": str(message.get("content", "")),
+                }
+            )
 
-    #     Returns:
-    #         list[dict[str, str]]: Ordered chat payload.
-    #     """
-    #     payload: list[dict[str, str]] = [{"role": "system", "content": system}]
-    #     for message in messages:
-    #         payload.append(
-    #             {
-    #                 "role": str(message.get("role", "user")),
-    #                 "content": str(message.get("content", "")),
-    #             }
-    #         )
-    #     return payload
+        return payload
 
 
 class QuantizationSelector:
