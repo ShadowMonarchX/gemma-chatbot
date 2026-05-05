@@ -62,6 +62,7 @@ class ModelManager:
         "gemma-e2b",
         "gemma-e4b",
     )
+    # The primary model ID is the main logical profile that all backends map to. It is used for user-facing settings and API parameters. The GGUF profile is an alias that maps to the same logical profile but with different backend/source, and it is intentionally not exposed as a separate model_id to avoid user confusion and to keep the API consistent regardless of environment differences in model availability.
     _primary_model_id: ClassVar[str] = "gemma-2b"
     _gguf_profile_id: ClassVar[str] = "gemma-2b-gguf"
     _mlx_model_source: ClassVar[str] = "google/gemma-2b-it"
