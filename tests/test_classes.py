@@ -87,6 +87,40 @@ class TestQuantizationSelector:
         assert strategy.quant == "Q4_K_M"
 
 
+class TestMLXQuantization:
+    """Unit tests for MLX stream chunk handling."""
+
+    def test_extracts_text_from_string_chunk(self) -> None:
+        """Plain string chunks should be treated as generated text."""
+        assert MLXQuantization._extract_chunk_text("Hello") == "Hello"
+
+    def test_extracts_text_from_dict_chunk(self) -> None:
+        """Dict chunks should support common text payload keys."""
+        assert MLXQuantization._extract_chunk_text({"text": "Hello"}) == "Hello"
+
+    def test_extracts_text_from_object_chunk(self) -> None:
+        """Object chunks should support the `text` attribute used by mlx_lm."""
+
+        class Chunk:
+            text = "Hello"
+
+        assert MLXQuantization._extract_chunk_text(Chunk()) == "Hello"
+
+
+class TestLlamaCppQuantization:
+    """Unit tests for llama.cpp payload handling."""
+
+    def test_build_messages_includes_system_prompt(self) -> None:
+        """GGUF fallback should include a system message for llama.cpp chat."""
+        strategy = LlamaCppQuantization()
+        payload = strategy._build_messages(
+            [{"role": "user", "content": "Hello"}],
+            "You are concise.",
+        )
+        assert payload[0] == {"role": "system", "content": "You are concise."}
+        assert payload[1] == {"role": "user", "content": "Hello"}
+
+
 class TestMessageValidator:
     """Unit tests for sanitization and prompt-injection guards."""
 

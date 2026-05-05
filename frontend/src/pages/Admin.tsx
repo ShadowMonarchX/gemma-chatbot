@@ -11,6 +11,51 @@ const formatUptime = (uptimeSeconds: number): string => {
   return `${hours}h ${minutes}m`;
 };
 
+const MODEL_PARAMETERS_BILLIONS: Record<string, number> = {
+  'gemma-2b': 2,
+  'gemma-e2b': 2,
+  'gemma-e4b': 2,
+};
+
+const quantizationBytesPerParameter = (quantization: string): number | null => {
+  const normalized = quantization.toUpperCase();
+  if (normalized.includes('4')) {
+    return 0.5;
+  }
+  if (normalized.includes('8')) {
+    return 1;
+  }
+  if (normalized.includes('16')) {
+    return 2;
+  }
+  return null;
+};
+
+const selectedModelDetails = (
+  modelId: string,
+  modelLabel: string,
+  quantization: string
+): { parameters: string; size: string; sizeSubtitle: string } => {
+  const mappedParameters = MODEL_PARAMETERS_BILLIONS[modelId];
+  const labelMatch = modelLabel.match(/(\d+(?:\.\d+)?)B/i);
+  const parameterBillions = mappedParameters ?? (labelMatch ? Number(labelMatch[1]) : null);
+  const bytesPerParameter = quantizationBytesPerParameter(quantization);
+
+  if (!parameterBillions) {
+    return {
+      parameters: 'Unknown',
+      size: 'Unknown',
+      sizeSubtitle: `${quantization} estimate unavailable`,
+    };
+  }
+
+  return {
+    parameters: `${parameterBillions}B`,
+    size: bytesPerParameter ? `~${(parameterBillions * bytesPerParameter).toFixed(1)} GB` : 'Unknown',
+    sizeSubtitle: `${quantization} weight estimate`,
+  };
+};
+
 const Admin: FC = () => {
   const data = useAdminStore((state) => state.data);
   const loading = useAdminStore((state) => state.loading);
@@ -68,6 +113,7 @@ const Admin: FC = () => {
 
   const isHealthy = data.status === 'ok' && data.errors === 0;
   const statusLabel = isHealthy ? 'All systems nominal' : 'System degraded';
+  const modelDetails = selectedModelDetails(data.model_id, data.model_label, data.quantization);
 
   return (
     <div className="min-h-screen bg-[linear-gradient(160deg,#020617_0%,#0f172a_45%,#022c22_100%)] px-4 py-6 text-slate-100 transition-all duration-300 md:px-6">
@@ -116,6 +162,16 @@ const Admin: FC = () => {
             value={`${data.hardware.ram_available_gb.toFixed(1)} / ${data.hardware.ram_total_gb.toFixed(1)} GB`}
           />
           <AdminCard title="Quantization" value={`${data.quantization} · ${data.backend}`} subtitle={data.model_label} />
+          <AdminCard
+            title="Selected Model Parameters"
+            value={modelDetails.parameters}
+            subtitle={data.model_label}
+          />
+          <AdminCard
+            title="Model Size"
+            value={modelDetails.size}
+            subtitle={modelDetails.sizeSubtitle}
+          />
           <AdminCard
             title="Metal GPU"
             value={data.hardware.metal_gpu ? 'Active' : 'Inactive'}

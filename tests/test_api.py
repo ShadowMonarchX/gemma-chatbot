@@ -140,6 +140,41 @@ class TestChat:
         )
         assert response.text.strip().endswith("data: [DONE]")
 
+    async def test_chat_stream_generation_error_emits_sse_error(
+        self, async_client: AsyncClient
+    ) -> None:
+        """Stream-time generation failures should be visible to clients."""
+        original_generate_stream = chatbot_app.model_manager.generate_stream
+
+        def failing_generate_stream(
+            messages: list[dict],
+            system: str,
+            skill: str,
+            model_id: str,
+        ):
+            _ = messages
+            _ = system
+            _ = skill
+            _ = model_id
+            raise RuntimeError("boom")
+            yield ""
+
+        chatbot_app.model_manager.generate_stream = failing_generate_stream
+        try:
+            response = await async_client.post(
+                "/api/chat",
+                json={
+                    "messages": [{"role": "user", "content": "Fail stream"}],
+                    "skill_id": "chat",
+                    "model_id": "gemma-2b",
+                    "stream": True,
+                },
+            )
+            assert "event: error" in response.text
+            assert "data: Token generation failed" in response.text
+        finally:
+            chatbot_app.model_manager.generate_stream = original_generate_stream
+
     async def test_chat_empty_messages_returns_422(self, async_client: AsyncClient) -> None:
         """Empty message lists should fail validation."""
         response = await async_client.post(
