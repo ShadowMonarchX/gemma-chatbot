@@ -1,0 +1,383 @@
+<style>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: var(--font-sans);
+  }
+
+  .arch {
+    padding: 1rem 0;
+  }
+
+  .layer-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+    padding-left: 4px;
+  }
+
+  .layer {
+    border: 0.5px solid var(--color-border-secondary);
+    border-radius: var(--border-radius-lg);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+
+  .layer-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .box {
+    border: 0.5px solid var(--color-border-secondary);
+    border-radius: var(--border-radius-md);
+    padding: 8px 12px;
+    flex: 1;
+    min-width: 130px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .box:hover {
+    border-color: var(--color-border-primary);
+    background: var(--color-background-secondary);
+  }
+
+  .box.active {
+    border-color: var(--color-border-info);
+    background: var(--color-background-info);
+  }
+
+  .box-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+  }
+
+  .box-sub {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    margin-top: 3px;
+    line-height: 1.4;
+  }
+
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: 99px;
+    margin-top: 5px;
+  }
+
+  .b-amber {
+    background: #FAEEDA;
+    color: #854F0B;
+  }
+
+  .b-teal {
+    background: #E1F5EE;
+    color: #0F6E56;
+  }
+
+  .b-blue {
+    background: #E6F1FB;
+    color: #185FA5;
+  }
+
+  .b-purple {
+    background: #EEEDFE;
+    color: #534AB7;
+  }
+
+  .b-coral {
+    background: #FAECE7;
+    color: #993C1D;
+  }
+
+  .arrow-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 22px;
+    color: var(--color-text-tertiary);
+    font-size: 11px;
+  }
+
+  .detail-panel {
+    border: 0.5px solid var(--color-border-info);
+    border-radius: var(--border-radius-lg);
+    padding: 14px 16px;
+    margin-top: 8px;
+    background: var(--color-background-primary);
+    display: none;
+  }
+
+  .detail-panel.show {
+    display: block;
+  }
+
+  .detail-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    margin-bottom: 8px;
+  }
+
+  .detail-body {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    line-height: 1.6;
+  }
+
+  .detail-body code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--color-background-secondary);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--color-text-primary);
+  }
+
+  .detail-body ul {
+    padding-left: 16px;
+    margin-top: 6px;
+  }
+
+  .detail-body li {
+    margin-bottom: 4px;
+  }
+
+  .close-btn {
+    float: right;
+    font-size: 11px;
+    color: var(--color-text-tertiary);
+    cursor: pointer;
+    margin-top: 2px;
+  }
+
+  .close-btn:hover {
+    color: var(--color-text-primary);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .b-amber {
+      background: #412402;
+      color: #FAC775;
+    }
+
+    .b-teal {
+      background: #04342C;
+      color: #9FE1CB;
+    }
+
+    .b-blue {
+      background: #042C53;
+      color: #B5D4F4;
+    }
+
+    .b-purple {
+      background: #26215C;
+      color: #CECBF6;
+    }
+
+    .b-coral {
+      background: #4A1B0C;
+      color: #F5C4B3;
+    }
+  }
+</style>
+<div class="arch">
+  <div class="layer-label">1 · Client requests</div>
+  <div class="layer" style="background: var(--color-background-secondary);">
+    <div class="layer-row">
+      <div class="box" onclick="show('clients')">
+        <div class="box-title">Users / Apps</div>
+        <div class="box-sub">Web, mobile, API clients</div>
+        <span class="badge b-blue">HTTPS / REST</span>
+      </div>
+      <div class="box" onclick="show('sdk')">
+        <div class="box-title">SDK / OpenAI-compat API</div>
+        <div class="box-sub">Clients call your endpoint like OpenAI</div>
+        <span class="badge b-blue">POST /v1/chat/completions</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-row">↓ &nbsp; Route traffic</div>
+
+  <div class="layer-label">2 · Load balancing & auth (AWS)</div>
+  <div class="layer" style="background: var(--color-background-secondary);">
+    <div class="layer-row">
+      <div class="box" onclick="show('alb')">
+        <div class="box-title">ALB (Application Load Balancer)</div>
+        <div class="box-sub">Distributes requests across replicas</div>
+        <span class="badge b-amber">Auto-scaling group</span>
+      </div>
+      <div class="box" onclick="show('auth')">
+        <div class="box-title">API Gateway + Auth</div>
+        <div class="box-sub">Rate-limit, API keys, JWT auth</div>
+        <span class="badge b-amber">AWS API GW or FastAPI</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-row">↓ &nbsp; Forward to inference server</div>
+
+  <div class="layer-label">3 · Inference engine — multi-user batching (GPU instances)</div>
+  <div class="layer" style="background: var(--color-background-secondary);">
+    <div class="layer-row">
+      <div class="box" onclick="show('vllm')">
+        <div class="box-title">vLLM (Inference Server)</div>
+        <div class="box-sub">Continuous batching, KV-cache, PagedAttention</div>
+        <span class="badge b-teal">Key tool · handles 100s of users</span>
+      </div>
+      <div class="box" onclick="show('ec2')">
+        <div class="box-title">EC2 GPU Instance</div>
+        <div class="box-sub">g4dn.xlarge → p3.8xlarge → p4d.24xlarge</div>
+        <span class="badge b-amber">A10G / A100 / H100</span>
+      </div>
+      <div class="box" onclick="show('model')">
+        <div class="box-title">Open-Source Model</div>
+        <div class="box-sub">Llama-3, Mistral, Qwen, Phi-3</div>
+        <span class="badge b-purple">HuggingFace weights</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-row">↕ &nbsp; Model loading / storage</div>
+
+  <div class="layer-label">4 · Model storage & quantization</div>
+  <div class="layer" style="background: var(--color-background-secondary);">
+    <div class="layer-row">
+      <div class="box" onclick="show('s3')">
+        <div class="box-title">S3 Model Bucket</div>
+        <div class="box-sub">Store .safetensors, LoRA adapters, tokenizers</div>
+        <span class="badge b-amber">s3://my-models/llama3-8b/</span>
+      </div>
+      <div class="box" onclick="show('quant')">
+        <div class="box-title">Quantized Weights</div>
+        <div class="box-sub">AWQ / GPTQ / bitsandbytes 4-bit</div>
+        <span class="badge b-coral">4–5× less VRAM needed</span>
+      </div>
+      <div class="box" onclick="show('lora')">
+        <div class="box-title">LoRA Adapters</div>
+        <div class="box-sub">Fine-tuned task adapters, swappable</div>
+        <span class="badge b-purple">PEFT · tiny files</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-row">↓ &nbsp; Observability & scaling</div>
+
+  <div class="layer-label">5 · MLOps & monitoring</div>
+  <div class="layer" style="background: var(--color-background-secondary);">
+    <div class="layer-row">
+      <div class="box" onclick="show('mlflow')">
+        <div class="box-title">MLflow / Experiment Tracking</div>
+        <div class="box-sub">Log fine-tuning runs, evals, metrics</div>
+        <span class="badge b-blue">Your gap skill → grow it</span>
+      </div>
+      <div class="box" onclick="show('docker')">
+        <div class="box-title">Docker + ECR</div>
+        <div class="box-sub">Containerize vLLM server, push to ECR</div>
+        <span class="badge b-amber">docker build → push → deploy</span>
+      </div>
+      <div class="box" onclick="show('cw')">
+        <div class="box-title">CloudWatch + Grafana</div>
+        <div class="box-sub">GPU util, latency, queue depth, errors</div>
+        <span class="badge b-teal">Alarm on P99 > 3s</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="detail" class="detail-panel">
+    <span class="close-btn" onclick="closeDetail()">✕ close</span>
+    <div class="detail-title" id="d-title"></div>
+    <div class="detail-body" id="d-body"></div>
+  </div>
+</div>
+
+<script>
+  const info = {
+    clients: {
+      title: "Users & App Clients",
+      body: `Any client sends a standard HTTP POST request. You expose a <code>/v1/chat/completions</code> endpoint (OpenAI-compatible via vLLM), so existing LangChain/LlamaIndex apps work with zero changes — just point them at your server's IP instead of api.openai.com.<br><br><ul><li>Web apps → <code>fetch('https://yourapi.com/v1/chat/completions', {...})</code></li><li>Python clients → <code>openai.OpenAI(base_url="https://yourapi.com/v1", api_key="your-key")</code></li></ul>`
+    },
+    sdk: {
+      title: "OpenAI-Compatible API",
+      body: `vLLM ships with a built-in OpenAI-compatible REST server. This means:<br><ul><li>Same JSON schema as OpenAI: <code>model, messages, max_tokens, temperature</code></li><li>Streaming supported via SSE (<code>stream: true</code>)</li><li>Works with LangChain, LlamaIndex, any OpenAI SDK</li><li>Launch: <code>python -m vllm.entrypoints.openai.api_server --model meta-llama/Llama-3-8B --port 8000</code></li></ul>`
+    },
+    alb: {
+      title: "AWS Application Load Balancer",
+      body: `ALB sits in front of your fleet of EC2 GPU instances. It does:<br><ul><li>Round-robin (or least-outstanding) routing to healthy instances</li><li>Health checks: if vLLM crashes, ALB stops sending traffic</li><li>Auto-scaling trigger: when GPU queue depth or CPU > threshold, ASG launches another instance and registers it with ALB</li><li>TLS termination at the load balancer level</li></ul>Typical setup: 1 ALB → Target Group → 2–4 EC2 GPU nodes.`
+    },
+    auth: {
+      title: "API Gateway + Authentication",
+      body: `Two common patterns:<br><ul><li><strong>AWS API Gateway</strong>: Managed, handles API keys, usage plans, rate limiting per user. Points to ALB or Lambda.</li><li><strong>FastAPI auth middleware</strong>: Simpler — add a <code>X-API-Key</code> header check in your FastAPI app that wraps vLLM. JWT for per-user identity.</li></ul>Rate limiting is critical — without it a single user can saturate your GPU with a long context request.`
+    },
+    vllm: {
+      title: "vLLM — The Core of Multi-User Inference",
+      body: `This is the most important tool to master. vLLM solves the multi-user problem with two key innovations:<br><ul><li><strong>Continuous batching</strong>: Instead of waiting for a batch to fill, vLLM dynamically adds new requests mid-generation. A user asking a short question gets a slot alongside users mid-way through long responses. Result: GPU is ~80–90% utilized instead of 20%.</li><li><strong>PagedAttention</strong>: KV-cache is managed like OS virtual memory — no wasted blocks, no pre-allocation guessing. Allows ~3× more concurrent users on the same GPU vs naive HuggingFace inference.</li></ul>Deploy: <code>docker run --gpus all vllm/vllm-openai --model meta-llama/Llama-3-8B-Instruct</code>`
+    },
+    ec2: {
+      title: "Choosing the Right EC2 GPU Instance",
+      body: `Match instance to model size:<br><ul><li><strong>g4dn.xlarge</strong> — 1× T4 (16GB VRAM) → 7B quantized (AWQ/GPTQ) ≈ $0.53/hr. Good for dev/test.</li><li><strong>g5.2xlarge</strong> — 1× A10G (24GB VRAM) → 7B full or 13B quantized ≈ $1.21/hr. Best price/perf for production.</li><li><strong>p3.8xlarge</strong> — 4× V100 (64GB total) → 30B models ≈ $12.24/hr.</li><li><strong>p4d.24xlarge</strong> — 8× A100 (320GB total) → 70B models ≈ $32.77/hr.</li></ul>Rule of thumb: model needs ~2× its weight size in VRAM for inference (FP16).`
+    },
+    model: {
+      title: "Loading Open-Source Models",
+      body: `Workflow to load and run a model on EC2:<br><ul><li>Download from HuggingFace Hub: <code>huggingface-cli download meta-llama/Llama-3-8B-Instruct --local-dir /mnt/models/</code></li><li>Or pull from your S3 bucket: <code>aws s3 sync s3://my-models/llama3-8b /mnt/models/llama3-8b</code></li><li>Pass to vLLM: <code>--model /mnt/models/llama3-8b</code></li><li>For quantized: <code>--quantization awq --dtype half</code></li></ul>Use EFS (Elastic File System) to share model weights across multiple EC2 instances — avoids re-downloading on each node.`
+    },
+    s3: {
+      title: "S3 Model Storage",
+      body: `S3 is your single source of truth for all model artifacts:<br><ul><li><code>s3://my-models/llama3-8b-instruct/</code> — base weights</li><li><code>s3://my-models/llama3-8b-lora-finance/</code> — fine-tuned adapter</li><li><code>s3://my-models/experiments/run-42/</code> — training checkpoints</li></ul>On EC2 launch: user-data script runs <code>aws s3 sync</code> to pull latest model to NVMe SSD. 8B model (~16GB) syncs in ~2 min on a 10Gbps instance. Use S3 Transfer Acceleration for larger models.`
+    },
+    quant: {
+      title: "Quantization — Key to Affordable GPU Inference",
+      body: `Quantization reduces model precision (FP16 → INT4/INT8), slashing VRAM needs:<br><ul><li><strong>AWQ (Activation-aware Weight Quantization)</strong>: Best quality, 4-bit. Supported natively in vLLM. Preferred.</li><li><strong>GPTQ</strong>: Older 4-bit method, slightly lower quality than AWQ. Widely available for many models.</li><li><strong>bitsandbytes</strong>: 4-bit/8-bit for training (QLoRA). Slower inference but easy to use with HuggingFace.</li></ul>Practical impact: Llama-3-8B in FP16 = ~16GB VRAM. AWQ 4-bit = ~5GB VRAM. Fits on a T4 (16GB) with room for KV-cache.`
+    },
+    lora: {
+      title: "LoRA Adapters — Fine-Tuning Without Full Training",
+      body: `LoRA (Low-Rank Adaptation via PEFT library) lets you fine-tune a model for your task at &lt;1% of full fine-tuning cost:<br><ul><li>Train only small "adapter" matrices (~10–100MB) instead of full 16GB model</li><li>vLLM supports multi-LoRA serving: load multiple adapters, specify which to use per request via <code>model: "base-model/lora-adapter-name"</code></li><li>Training: <code>from peft import get_peft_model, LoraConfig</code> → train on 1 GPU → save adapter</li><li>QLoRA = LoRA + 4-bit quantized base model → fine-tune a 70B model on a single 48GB GPU</li></ul>`
+    },
+    mlflow: {
+      title: "MLflow — Track Your Experiments",
+      body: `Your skill tracker shows this as "Gap" — here's what to focus on:<br><ul><li><strong>Tracking</strong>: <code>mlflow.log_metric("eval_loss", 0.42, step=100)</code> — log loss, accuracy, throughput per training run</li><li><strong>Model Registry</strong>: Version your models, promote from "staging" to "production"</li><li><strong>Artifacts</strong>: Log adapter weights, confusion matrices, eval datasets</li><li>Self-host on EC2 with Postgres backend + S3 artifact store. Or use Databricks MLflow (managed).</li></ul>Start simple: add 5 lines of MLflow logging to your next fine-tuning script.`
+    },
+    docker: {
+      title: "Docker + ECR Deployment",
+      body: `The standard deploy workflow:<br><ul><li><code>docker build -t my-vllm-server:v1 .</code> — build image with vLLM + your config</li><li><code>aws ecr get-login-password | docker login --username AWS --password-stdin &lt;ecr-uri&gt;</code></li><li><code>docker push &lt;ecr-uri&gt;/my-vllm-server:v1</code></li><li>EC2 user-data: <code>docker pull &lt;ecr-uri&gt;/my-vllm-server:v1 && docker run --gpus all ...</code></li></ul>Or use ECS (Elastic Container Service) with GPU task definitions — it manages container lifecycle and integrates with ALB automatically.`
+    },
+    cw: {
+      title: "Monitoring — Know When Things Break",
+      body: `Critical metrics to track for LLM inference:<br><ul><li><strong>GPU utilization</strong> (CloudWatch via nvidia-smi or DCGM exporter → Grafana): target 70–85% sustained</li><li><strong>Request queue depth</strong> (vLLM exposes Prometheus metrics at <code>/metrics</code>): alarm if > 50 waiting</li><li><strong>P50/P99 time-to-first-token</strong>: user-perceived latency. Alert if P99 > 3s.</li><li><strong>Tokens/second throughput</strong>: track over time to detect model regressions after updates</li></ul>vLLM has built-in Prometheus support — scrape with a Prometheus EC2 instance → Grafana dashboard.`
+    }
+  };
+
+  let current = null;
+  function show(key) {
+    const d = info[key];
+    document.getElementById('d-title').textContent = d.title;
+    document.getElementById('d-body').innerHTML = d.body;
+    const panel = document.getElementById('detail');
+    panel.classList.add('show');
+    document.querySelectorAll('.box').forEach(b => b.classList.remove('active'));
+    event.currentTarget.classList.add('active');
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    current = key;
+  }
+  function closeDetail() {
+    document.getElementById('detail').classList.remove('show');
+    document.querySelectorAll('.box').forEach(b => b.classList.remove('active'));
+    current = null;
+  }
+</script>

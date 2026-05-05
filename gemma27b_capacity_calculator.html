@@ -1,0 +1,376 @@
+<style>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0
+  }
+
+  .w {
+    padding: 1rem 0;
+    font-family: var(--font-sans)
+  }
+
+  .row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px
+  }
+
+  .card {
+    background: var(--color-background-secondary);
+    border-radius: var(--border-radius-md);
+    padding: 12px 14px;
+    flex: 1;
+    min-width: 120px
+  }
+
+  .card-val {
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--color-text-primary)
+  }
+
+  .card-lbl {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    margin-top: 3px
+  }
+
+  .card-sub {
+    font-size: 11px;
+    color: var(--color-text-tertiary);
+    margin-top: 2px
+  }
+
+  .section {
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-lg);
+    padding: 12px 14px;
+    margin-bottom: 10px
+  }
+
+  .sec-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: .06em
+  }
+
+  .ctrl-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px
+  }
+
+  .ctrl-lbl {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    min-width: 140px
+  }
+
+  .ctrl-val {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    min-width: 60px;
+    text-align: right
+  }
+
+  .bar-wrap {
+    flex: 1;
+    height: 6px;
+    background: var(--color-border-tertiary);
+    border-radius: 3px;
+    overflow: hidden
+  }
+
+  .bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width .3s
+  }
+
+  .bar-green {
+    background: #1D9E75
+  }
+
+  .bar-amber {
+    background: #BA7517
+  }
+
+  .bar-red {
+    background: #E24B4A
+  }
+
+  .table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px
+  }
+
+  .table th {
+    text-align: left;
+    padding: 6px 8px;
+    color: var(--color-text-secondary);
+    font-weight: 500;
+    border-bottom: 0.5px solid var(--color-border-tertiary)
+  }
+
+  .table td {
+    padding: 6px 8px;
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+    color: var(--color-text-primary)
+  }
+
+  .table tr:last-child td {
+    border-bottom: none
+  }
+
+  .table tr.highlight td {
+    background: var(--color-background-info);
+    color: var(--color-text-info)
+  }
+
+  .tag {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 99px;
+    font-weight: 500
+  }
+
+  .tag-g {
+    background: #EAF3DE;
+    color: #3B6D11
+  }
+
+  .tag-a {
+    background: #FAEEDA;
+    color: #854F0B
+  }
+
+  .tag-r {
+    background: #FCEBEB;
+    color: #A32D2D
+  }
+
+  @media(prefers-color-scheme:dark) {
+    .tag-g {
+      background: #173404;
+      color: #C0DD97
+    }
+
+    .tag-a {
+      background: #412402;
+      color: #FAC775
+    }
+
+    .tag-r {
+      background: #501313;
+      color: #F7C1C1
+    }
+  }
+
+  .divider {
+    height: 0.5px;
+    background: var(--color-border-tertiary);
+    margin: 10px 0
+  }
+
+  .note {
+    font-size: 11px;
+    color: var(--color-text-tertiary);
+    line-height: 1.5;
+    margin-top: 6px
+  }
+</style>
+<div class="w">
+
+  <div class="section">
+    <div class="sec-title">Configure your setup</div>
+    <div class="ctrl-row">
+      <span class="ctrl-lbl">Instance type</span>
+      <select id="inst" onchange="calc()" style="flex:1;font-size:12px">
+        <option value="g5_2xl">g5.2xlarge — 1× A10G 24GB ($1.21/hr)</option>
+        <option value="g5_12xl" selected>g5.12xlarge — 4× A10G 96GB ($5.67/hr)</option>
+        <option value="g5_48xl">g5.48xlarge — 8× A10G 192GB ($16.29/hr)</option>
+        <option value="p4d_24xl">p4d.24xlarge — 8× A100 320GB ($32.77/hr)</option>
+      </select>
+    </div>
+    <div class="ctrl-row">
+      <span class="ctrl-lbl">Quantization</span>
+      <select id="quant" onchange="calc()" style="flex:1;font-size:12px">
+        <option value="bf16">BF16 full precision</option>
+        <option value="awq" selected>AWQ 4-bit (recommended)</option>
+        <option value="int8">INT8</option>
+      </select>
+    </div>
+    <div class="ctrl-row">
+      <span class="ctrl-lbl">Avg output tokens</span>
+      <input type="range" id="outtok" min="50" max="2000" value="300" step="50" oninput="calc()" style="flex:1">
+      <span class="ctrl-val" id="outtok_v">300</span>
+    </div>
+    <div class="ctrl-row">
+      <span class="ctrl-lbl">Avg input tokens</span>
+      <input type="range" id="intok" min="100" max="8000" value="500" step="100" oninput="calc()" style="flex:1">
+      <span class="ctrl-val" id="intok_v">500</span>
+    </div>
+    <div class="ctrl-row">
+      <span class="ctrl-lbl">Number of EC2 nodes</span>
+      <input type="range" id="nodes" min="1" max="10" value="1" step="1" oninput="calc()" style="flex:1">
+      <span class="ctrl-val" id="nodes_v">1</span>
+    </div>
+  </div>
+
+  <div class="row" id="stats"></div>
+
+  <div class="section">
+    <div class="sec-title">Response time breakdown (single user, no queue)</div>
+    <div id="latency_bars"></div>
+  </div>
+
+  <div class="section">
+    <div class="sec-title">Concurrent user capacity</div>
+    <table class="table" id="cap_table">
+      <thead>
+        <tr>
+          <th>Use case</th>
+          <th>Tokens in/out</th>
+          <th>Concurrent users</th>
+          <th>Throughput</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="cap_body"></tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <div class="sec-title">Agent loop latency (multi-tool call)</div>
+    <div id="agent_table"></div>
+    <div class="note">* Agent latency = sum of all LLM calls + tool round trips. Each tool call adds ~100–500ms network
+      latency.</div>
+  </div>
+
+</div>
+
+<script>
+  const INSTANCES = {
+    g5_2xl: { name: "g5.2xlarge", gpus: 1, vram: 24, tps_bf16: 18, tps_awq: 35, tps_int8: 25, cost: 1.21 },
+    g5_12xl: { name: "g5.12xlarge", gpus: 4, vram: 96, tps_bf16: 55, tps_awq: 110, tps_int8: 75, cost: 5.67 },
+    g5_48xl: { name: "g5.48xlarge", gpus: 8, vram: 192, tps_bf16: 110, tps_awq: 200, tps_int8: 140, cost: 16.29 },
+    p4d_24xl: { name: "p4d.24xlarge", gpus: 8, vram: 320, tps_bf16: 180, tps_awq: 280, tps_int8: 200, cost: 32.77 },
+  };
+  const QUANT_VRAM = { bf16: 54, awq: 14, int8: 27 };
+  const QUANT_LABEL = { bf16: "BF16", awq: "AWQ 4-bit", int8: "INT8" };
+
+  function calc() {
+    const inst = INSTANCES[document.getElementById('inst').value];
+    const quant = document.getElementById('quant').value;
+    const outTok = parseInt(document.getElementById('outtok').value);
+    const inTok = parseInt(document.getElementById('intok').value);
+    const nodes = parseInt(document.getElementById('nodes').value);
+
+    document.getElementById('outtok_v').textContent = outTok;
+    document.getElementById('intok_v').textContent = inTok;
+    document.getElementById('nodes_v').textContent = nodes;
+
+    const modelVram = QUANT_VRAM[quant];
+    const kvVram = inst.vram - modelVram;
+    const tps = inst['tps_' + quant] * nodes;
+
+    // fits check
+    const fits = modelVram <= inst.vram;
+
+    // time to first token: prefill speed ~3x decode speed
+    const prefillTps = tps * 3;
+    const ttft = Math.round((inTok / prefillTps) * 1000);
+    // decode time
+    const decodeMs = Math.round((outTok / tps) * 1000);
+    const totalMs = ttft + decodeMs;
+
+    // concurrent users: vLLM continuous batching
+    // rough model: concurrent = tps / (outTok / session_time_s)
+    // session_time = totalMs/1000
+    const sessionS = totalMs / 1000;
+    const concurrentUsers = Math.max(1, Math.round(tps * sessionS / outTok * nodes));
+
+    // cost per 1k tokens
+    const costPer1k = ((inst.cost * nodes) / (tps * 3600)) * 1000;
+
+    // stats cards
+    document.getElementById('stats').innerHTML = `
+    <div class="card"><div class="card-val">${totalMs < 1000 ? totalMs + 'ms' : (totalMs / 1000).toFixed(1) + 's'}</div><div class="card-lbl">Total response time</div><div class="card-sub">${outTok} tokens output</div></div>
+    <div class="card"><div class="card-val">${ttft}ms</div><div class="card-lbl">Time to first token</div><div class="card-sub">User sees first word</div></div>
+    <div class="card"><div class="card-val">${tps}</div><div class="card-lbl">Tokens/sec total</div><div class="card-sub">${nodes} node${nodes > 1 ? 's' : ''} × ${inst['tps_' + quant]}</div></div>
+    <div class="card"><div class="card-val">~${concurrentUsers}</div><div class="card-lbl">Max concurrent users</div><div class="card-sub">vLLM batching</div></div>
+    <div class="card"><div class="card-val">$${costPer1k.toFixed(3)}</div><div class="card-lbl">Cost / 1k tokens</div><div class="card-sub">${inst.name}</div></div>
+  `;
+
+    // latency bars
+    const maxMs = Math.max(totalMs, 4000);
+    const ttftPct = Math.round((ttft / maxMs) * 100);
+    const decodePct = Math.round((decodeMs / maxMs) * 100);
+    const ttftColor = ttft < 300 ? 'bar-green' : ttft < 800 ? 'bar-amber' : 'bar-red';
+    const totalColor = totalMs < 2000 ? 'bar-green' : totalMs < 5000 ? 'bar-amber' : 'bar-red';
+    document.getElementById('latency_bars').innerHTML = `
+    <div class="ctrl-row"><span class="ctrl-lbl">Time to first token (TTFT)</span><div class="bar-wrap"><div class="bar ${ttftColor}" style="width:${ttftPct}%"></div></div><span class="ctrl-val">${ttft}ms</span></div>
+    <div class="ctrl-row"><span class="ctrl-lbl">Decode / generation</span><div class="bar-wrap"><div class="bar bar-amber" style="width:${decodePct}%"></div></div><span class="ctrl-val">${decodeMs}ms</span></div>
+    <div class="ctrl-row"><span class="ctrl-lbl">Total (no streaming)</span><div class="bar-wrap"><div class="bar ${totalColor}" style="width:100%"></div></div><span class="ctrl-val">${totalMs < 1000 ? totalMs + 'ms' : (totalMs / 1000).toFixed(1) + 's'}</span></div>
+    <div class="ctrl-row"><span class="ctrl-lbl">With streaming (UX feel)</span><div class="bar-wrap"><div class="bar bar-green" style="width:${ttftPct}%"></div></div><span class="ctrl-val">${ttft}ms felt</span></div>
+  `;
+
+    // capacity table
+    const cases = [
+      { name: "Chat / QA", in: 300, out: 150, label: "chatbot" },
+      { name: "RAG answer", in: 2000, out: 300, label: "rag" },
+      { name: "Code generation", in: 500, out: 800, label: "code" },
+      { name: "Agent (3 tools)", in: 1500, out: 200, label: "agent3", multi: 3 },
+      { name: "Agent (8 tools)", in: 3000, out: 300, label: "agent8", multi: 8 },
+      { name: "Long summary", in: 6000, out: 500, label: "summary" },
+    ];
+    let rows = '';
+    cases.forEach(c => {
+      const toolMult = c.multi || 1;
+      const cTtft = Math.round((c.in / (tps * 3)) * 1000);
+      const cDec = Math.round((c.out / tps) * 1000);
+      const cTotal = (cTtft + cDec) * toolMult + (toolMult > 1 ? (toolMult - 1) * 300 : 0);
+      const cSessS = cTotal / 1000;
+      const cConc = Math.max(1, Math.round(tps * cSessS / c.out));
+      const totalS = (cTotal / 1000).toFixed(1);
+      const tag = cTotal < 3000 ? '<span class="tag tag-g">Fast</span>' : cTotal < 8000 ? '<span class="tag tag-a">Medium</span>' : '<span class="tag tag-r">Slow</span>';
+      const isHighlight = c.label === 'agent3';
+      rows += `<tr${isHighlight ? ' class="highlight"' : ''}><td>${c.name}</td><td>${c.in}→${c.out}</td><td>${cConc} users</td><td>${totalS}s total</td><td>${tag}</td></tr>`;
+    });
+    document.getElementById('cap_body').innerHTML = rows;
+
+    // agent table
+    const toolLatencies = [
+      { tool: "Web search MCP", ms: 800, note: "Brave API round trip" },
+      { tool: "DB query MCP", ms: 150, note: "Postgres on same VPC" },
+      { tool: "Code exec MCP", ms: 2000, note: "E2B sandbox cold start" },
+      { tool: "RAG search MCP", ms: 200, note: "Pinecone query" },
+      { tool: "External API MCP", ms: 500, note: "Slack/GitHub API" },
+    ];
+    const llmCallMs = Math.round(((500 / (tps * 3)) + (200 / tps)) * 1000);
+    let agentHtml = `<table class="table"><thead><tr><th>Component</th><th>Latency</th><th>Notes</th></tr></thead><tbody>`;
+    agentHtml += `<tr><td>LLM call (think step)</td><td>${llmCallMs}ms</td><td>500 in, 200 out tokens</td></tr>`;
+    toolLatencies.forEach(t => {
+      agentHtml += `<tr><td>${t.tool}</td><td>${t.ms}ms</td><td>${t.note}</td></tr>`;
+    });
+    const agent3 = llmCallMs * 4 + 800 + 150 + 200;
+    const agent8 = llmCallMs * 9 + 800 + 150 + 2000 + 200 + 500 + llmCallMs * 4;
+    agentHtml += `</tbody></table>`;
+    agentHtml += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+    <div class="card" style="min-width:0"><div class="card-val">${(agent3 / 1000).toFixed(1)}s</div><div class="card-lbl">3-tool agent run</div><div class="card-sub">think+search+db+answer</div></div>
+    <div class="card" style="min-width:0"><div class="card-val">${(agent8 / 1000).toFixed(1)}s</div><div class="card-lbl">8-tool agent run</div><div class="card-sub">complex multi-step task</div></div>
+    <div class="card" style="min-width:0"><div class="card-val">${ttft}ms</div><div class="card-lbl">Streaming TTFT</div><div class="card-sub">user sees first word</div></div>
+  </div>`;
+    document.getElementById('agent_table').innerHTML = agentHtml;
+  }
+  calc();
+</script>

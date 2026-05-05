@@ -253,7 +253,7 @@ class ModelManager:
                 status_code=500,
                 log_detail="active_strategy missing after switch_model",
             )
-
+        # We wrap the strategy generator to track tokens per second for performance monitoring.
         def stream_tokens() -> Generator[str, None, None]:
             started = time.perf_counter()
             token_count = 0
