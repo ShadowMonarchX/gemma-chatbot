@@ -293,25 +293,34 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           const events = buffer.split('\n\n');
           buffer = events.pop() ?? '';
 
-          events.forEach((eventLine) => {
-            const dataLine = eventLine.split('\n').find((segment) => segment.startsWith('data:'));
+          for (const eventLine of events) {
+            const lines = eventLine.split('\n');
+            const eventTypeLine = lines.find((segment) => segment.startsWith('event:'));
+            const eventType = eventTypeLine
+              ? eventTypeLine.slice(6).trim()
+              : 'message';
+            const dataLine = lines.find((segment) => segment.startsWith('data:'));
             if (!dataLine) {
-              return;
+              continue;
             }
 
             const withoutPrefix = dataLine.slice(5);
             const data = withoutPrefix.startsWith(' ') ? withoutPrefix.slice(1) : withoutPrefix;
+
+            if (eventType === 'error') {
+              throw new ApiError(500, response.headers.get('X-Request-Id') ?? 'stream-error', data);
+            }
 
             if (data === '[DONE]') {
               const fallbackMs = Math.max(Math.round(performance.now() - startedAt), 1);
               const resolvedMs =
                 Number.isFinite(headerMs) && headerMs > 0 ? Math.round(headerMs) : fallbackMs;
               get().actions.setResponseMs(resolvedMs);
-              return;
+              continue;
             }
 
             get().actions.appendToken(data);
-          });
+          }
         }
       } catch (error) {
         const normalized =

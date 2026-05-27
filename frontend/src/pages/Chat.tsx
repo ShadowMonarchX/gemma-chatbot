@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type FC, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FC, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 
 import MessageList from '../components/MessageList';
 import SkillToggle from '../components/SkillToggle';
 import { useChatStore, type SkillOption } from '../stores/chatStore';
+
+const TEXTAREA_MIN_HEIGHT = 44;
+const TEXTAREA_MAX_HEIGHT = 240;
 
 const Chat: FC = () => {
   const messages = useChatStore((state) => state.messages);
@@ -28,10 +31,19 @@ const Chat: FC = () => {
     if (!textareaRef.current) {
       return;
     }
-    textareaRef.current.style.height = '0px';
-    const nextHeight = Math.min(textareaRef.current.scrollHeight, 24 * 5);
+    textareaRef.current.style.height = 'auto';
+    const nextHeight = Math.min(
+      Math.max(textareaRef.current.scrollHeight, TEXTAREA_MIN_HEIGHT),
+      TEXTAREA_MAX_HEIGHT
+    );
     textareaRef.current.style.height = `${nextHeight}px`;
+    textareaRef.current.style.overflowY =
+      textareaRef.current.scrollHeight > TEXTAREA_MAX_HEIGHT ? 'auto' : 'hidden';
   };
+
+  useLayoutEffect(() => {
+    updateTextareaSize();
+  }, [draft]);
 
   const handleSubmit = async () => {
     if (isStreaming || isEmpty) {
@@ -40,9 +52,6 @@ const Chat: FC = () => {
 
     const content = draft;
     setDraft('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = '0px';
-    }
     await actions.sendMessage(content);
   };
 
@@ -107,7 +116,7 @@ const Chat: FC = () => {
         </div>
 
         <div className="sticky bottom-0 left-0 right-0 border-t border-slate-700 bg-slate-950/95 py-3 backdrop-blur">
-          <div className="flex items-end gap-3">
+          <div className="flex items-start gap-3">
             <button
               type="button"
               aria-label="Clear chat history"
@@ -128,13 +137,12 @@ const Chat: FC = () => {
                 value={draft}
                 onChange={(event) => {
                   setDraft(event.target.value);
-                  updateTextareaSize();
                 }}
                 onKeyDown={handleKeyDown}
                 placeholder="Ask something helpful..."
                 rows={1}
                 maxLength={4096}
-                className="max-h-[120px] w-full resize-none rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none transition duration-150 ease-in-out placeholder:text-slate-500 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/40"
+                className="min-h-[44px] max-h-[240px] w-full resize-none overflow-hidden rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none transition-[border-color,box-shadow] duration-150 ease-in-out placeholder:text-slate-500 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/40"
               />
               <div className="mt-1 flex items-center justify-between">
                 <span className={`text-xs ${counterClass}`}>{charCount} / 4096</span>

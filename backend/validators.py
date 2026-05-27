@@ -111,7 +111,11 @@ class MessageValidator:
         Returns:
             None.
         """
-        timestamp = dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        timestamp = (
+            dt.datetime.now(dt.UTC)
+            .isoformat(timespec="seconds")
+            .replace("+00:00", "Z")
+        )
         preview = text[:240]
         print(
             f"[{timestamp}] injection_attempt_rejected preview={preview!r}",

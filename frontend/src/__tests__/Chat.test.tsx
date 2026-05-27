@@ -150,6 +150,26 @@ describe('Chat page', () => {
     });
   });
 
+  it('expands message input for large content', async () => {
+    installDefaultFetch(createSseResponse(['data: [DONE]']));
+
+    renderChatApp();
+
+    const textarea = await screen.findByLabelText(/message input/i);
+    Object.defineProperty(textarea, 'scrollHeight', {
+      configurable: true,
+      value: 320,
+    });
+
+    fireEvent.change(textarea, {
+      target: { value: ['First line', 'Second line', 'Third line'].join('\n') },
+    });
+
+    await waitFor(() => {
+      expect(textarea).toHaveStyle({ height: '240px', overflowY: 'auto' });
+    });
+  });
+
   it('shows typing indicator while streaming', async () => {
     let resolveChat: (value: Response | PromiseLike<Response>) => void = () => {};
 
@@ -265,6 +285,20 @@ describe('Chat page', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/server failure/i)).toBeInTheDocument();
+    });
+  });
+
+  it('shows error toast on SSE error event', async () => {
+    installDefaultFetch(createSseResponse(['event: error\ndata: Token generation failed']));
+
+    renderChatApp();
+
+    const textarea = await screen.findByLabelText(/message input/i);
+    fireEvent.change(textarea, { target: { value: 'Trigger stream error' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+
+    await waitFor(() => {
+      expect(screen.getByText(/token generation failed/i)).toBeInTheDocument();
     });
   });
 });
