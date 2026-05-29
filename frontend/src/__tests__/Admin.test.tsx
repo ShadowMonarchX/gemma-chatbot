@@ -84,7 +84,10 @@ describe('Admin page', () => {
       expect(screen.getByText(/Apple M2/i)).toBeInTheDocument();
     });
     expect(screen.getByText(/Metal GPU/i)).toBeInTheDocument();
-    expect(screen.getByText(/INT4/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/INT4/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Selected Model Parameters/i)).toBeInTheDocument();
+    expect(screen.getByText(/Model Size/i)).toBeInTheDocument();
+    expect(screen.getByText(/~1.0 GB/i)).toBeInTheDocument();
   });
 
   it('shows health status badge', async () => {

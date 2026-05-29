@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import time
@@ -145,23 +146,30 @@ class SSETokenStream:
         self._is_finished = False
         self._token_count = 0
         self._first_token_ms: int = 0
+        self._logger = logging.getLogger("gemma-chatbot.sse")
 
-    def __iter__(self) -> "SSETokenStream":
-        """Return iterator instance.
+    def __aiter__(self) -> "SSETokenStream":
+        """Return async iterator instance.
 
         Returns:
             SSETokenStream: Self.
         """
         return self
 
-    def __next__(self) -> bytes:
-        """Generate next SSE frame.
+    async def __anext__(self) -> bytes:
+        """Generate next SSE frame on the event loop thread.
 
         Returns:
             bytes: Encoded `data: ...` SSE message.
         """
+        frame = self._next_frame()
+        await asyncio.sleep(0)
+        return frame
+
+    def _next_frame(self) -> bytes:
+        """Generate the next SSE frame from the model token stream."""
         if self._is_finished:
-            raise StopIteration
+            raise StopAsyncIteration
 
         try:
             token = next(self._token_stream)
@@ -176,10 +184,15 @@ class SSETokenStream:
             self._finalize(error=False)
             self._is_finished = True
             return b"data: [DONE]\n\n"
-        except Exception:
+        except Exception as exc:
             self._finalize(error=True)
             self._is_finished = True
-            return b"data: [DONE]\n\n"
+            self._logger.exception("stream_generation_failed model_id=%s", self._model_id)
+            message = "Token generation failed"
+            if isinstance(exc, ModelError):
+                message = exc.message
+            escaped = html.escape(message, quote=False)
+            return f"event: error\ndata: {escaped}\n\n".encode("utf-8")
 
     def _finalize(self, error: bool) -> None:
         """Finalize one request metrics record.

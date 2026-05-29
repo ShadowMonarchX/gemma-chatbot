@@ -1,183 +1,536 @@
-
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-.w{padding:1rem 0;font-family:var(--font-sans)}
-.tabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:0.5px solid var(--color-border-tertiary);padding-bottom:0}
-.tab{padding:7px 14px;font-size:12px;font-weight:500;cursor:pointer;border-radius:var(--border-radius-md) var(--border-radius-md) 0 0;color:var(--color-text-secondary);border:0.5px solid transparent;margin-bottom:-0.5px}
-.tab.active{color:var(--color-text-primary);border-color:var(--color-border-tertiary);border-bottom-color:var(--color-background-primary);background:var(--color-background-primary)}
-.panel{display:none}.panel.active{display:block}
-.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-.card{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:11px 13px;flex:1;min-width:110px}
-.card-val{font-size:20px;font-weight:500;color:var(--color-text-primary)}
-.card-lbl{font-size:11px;color:var(--color-text-secondary);margin-top:2px}
-.card-save{font-size:11px;font-weight:500;color:#1D9E75;margin-top:2px}
-.section{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:11px 13px;margin-bottom:10px}
-.sec-t{font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.07em;margin-bottom:9px}
-.tip{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:0.5px solid var(--color-border-tertiary)}
-.tip:last-child{border-bottom:none;padding-bottom:0}
-.tip-icon{width:28px;height:28px;border-radius:var(--border-radius-md);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;font-weight:500}
-.tip-body{flex:1}
-.tip-t{font-size:13px;font-weight:500;color:var(--color-text-primary)}
-.tip-s{font-size:11px;color:var(--color-text-secondary);margin-top:3px;line-height:1.5}
-.tip-s code{font-family:var(--font-mono);font-size:10px;background:var(--color-background-secondary);padding:1px 4px;border-radius:3px;color:var(--color-text-primary)}
-.badge{display:inline-block;font-size:10px;font-weight:500;padding:2px 7px;border-radius:99px;margin-top:4px}
-.bg{background:#EAF3DE;color:#3B6D11}.ba{background:#FAEEDA;color:#854F0B}.br{background:#FCEBEB;color:#A32D2D}.bb{background:#E6F1FB;color:#185FA5}.bp{background:#EEEDFE;color:#534AB7}
-@media(prefers-color-scheme:dark){
-  .bg{background:#173404;color:#C0DD97}.ba{background:#412402;color:#FAC775}.br{background:#501313;color:#F7C1C1}.bb{background:#042C53;color:#B5D4F4}.bp{background:#26215C;color:#CECBF6}
-}
-.impact{font-size:10px;font-weight:500;padding:2px 6px;border-radius:99px;float:right}
-.imp-h{background:#EAF3DE;color:#3B6D11}
-.imp-m{background:#FAEEDA;color:#854F0B}
-.imp-l{background:#E6F1FB;color:#185FA5}
-@media(prefers-color-scheme:dark){
-  .imp-h{background:#173404;color:#C0DD97}.imp-m{background:#412402;color:#FAC775}.imp-l{background:#042C53;color:#B5D4F4}
-}
-.ctrl-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
-.ctrl-lbl{font-size:12px;color:var(--color-text-secondary);min-width:150px}
-.ctrl-val{font-size:12px;font-weight:500;color:var(--color-text-primary);min-width:55px;text-align:right}
-.compare-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}
-.cmp{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 12px;text-align:center}
-.cmp.best{border-color:var(--color-border-info);background:var(--color-background-info)}
-.cmp-name{font-size:12px;font-weight:500;color:var(--color-text-primary)}
-.cmp-v{font-size:18px;font-weight:500;margin:4px 0}
-.cmp-sub{font-size:10px;color:var(--color-text-secondary)}
-.prog-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-.prog-lbl{font-size:11px;color:var(--color-text-secondary);min-width:130px}
-.prog-bar{flex:1;height:5px;background:var(--color-border-tertiary);border-radius:3px;overflow:hidden}
-.prog-fill{height:100%;border-radius:3px}
-.prog-val{font-size:11px;font-weight:500;color:var(--color-text-primary);min-width:45px;text-align:right}
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0
+  }
+
+  .w {
+    padding: 1rem 0;
+    font-family: var(--font-sans)
+  }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+    padding-bottom: 0
+  }
+
+  .tab {
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: var(--border-radius-md) var(--border-radius-md) 0 0;
+    color: var(--color-text-secondary);
+    border: 0.5px solid transparent;
+    margin-bottom: -0.5px
+  }
+
+  .tab.active {
+    color: var(--color-text-primary);
+    border-color: var(--color-border-tertiary);
+    border-bottom-color: var(--color-background-primary);
+    background: var(--color-background-primary)
+  }
+
+  .panel {
+    display: none
+  }
+
+  .panel.active {
+    display: block
+  }
+
+  .row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px
+  }
+
+  .card {
+    background: var(--color-background-secondary);
+    border-radius: var(--border-radius-md);
+    padding: 11px 13px;
+    flex: 1;
+    min-width: 110px
+  }
+
+  .card-val {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--color-text-primary)
+  }
+
+  .card-lbl {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    margin-top: 2px
+  }
+
+  .card-save {
+    font-size: 11px;
+    font-weight: 500;
+    color: #1D9E75;
+    margin-top: 2px
+  }
+
+  .section {
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-lg);
+    padding: 11px 13px;
+    margin-bottom: 10px
+  }
+
+  .sec-t {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    margin-bottom: 9px
+  }
+
+  .tip {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 9px 0;
+    border-bottom: 0.5px solid var(--color-border-tertiary)
+  }
+
+  .tip:last-child {
+    border-bottom: none;
+    padding-bottom: 0
+  }
+
+  .tip-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--border-radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+    font-weight: 500
+  }
+
+  .tip-body {
+    flex: 1
+  }
+
+  .tip-t {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-primary)
+  }
+
+  .tip-s {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    margin-top: 3px;
+    line-height: 1.5
+  }
+
+  .tip-s code {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    background: var(--color-background-secondary);
+    padding: 1px 4px;
+    border-radius: 3px;
+    color: var(--color-text-primary)
+  }
+
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: 99px;
+    margin-top: 4px
+  }
+
+  .bg {
+    background: #EAF3DE;
+    color: #3B6D11
+  }
+
+  .ba {
+    background: #FAEEDA;
+    color: #854F0B
+  }
+
+  .br {
+    background: #FCEBEB;
+    color: #A32D2D
+  }
+
+  .bb {
+    background: #E6F1FB;
+    color: #185FA5
+  }
+
+  .bp {
+    background: #EEEDFE;
+    color: #534AB7
+  }
+
+  @media(prefers-color-scheme:dark) {
+    .bg {
+      background: #173404;
+      color: #C0DD97
+    }
+
+    .ba {
+      background: #412402;
+      color: #FAC775
+    }
+
+    .br {
+      background: #501313;
+      color: #F7C1C1
+    }
+
+    .bb {
+      background: #042C53;
+      color: #B5D4F4
+    }
+
+    .bp {
+      background: #26215C;
+      color: #CECBF6
+    }
+  }
+
+  .impact {
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 6px;
+    border-radius: 99px;
+    float: right
+  }
+
+  .imp-h {
+    background: #EAF3DE;
+    color: #3B6D11
+  }
+
+  .imp-m {
+    background: #FAEEDA;
+    color: #854F0B
+  }
+
+  .imp-l {
+    background: #E6F1FB;
+    color: #185FA5
+  }
+
+  @media(prefers-color-scheme:dark) {
+    .imp-h {
+      background: #173404;
+      color: #C0DD97
+    }
+
+    .imp-m {
+      background: #412402;
+      color: #FAC775
+    }
+
+    .imp-l {
+      background: #042C53;
+      color: #B5D4F4
+    }
+  }
+
+  .ctrl-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px
+  }
+
+  .ctrl-lbl {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    min-width: 150px
+  }
+
+  .ctrl-val {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    min-width: 55px;
+    text-align: right
+  }
+
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px
+  }
+
+  .cmp {
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-md);
+    padding: 10px 12px;
+    text-align: center
+  }
+
+  .cmp.best {
+    border-color: var(--color-border-info);
+    background: var(--color-background-info)
+  }
+
+  .cmp-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-text-primary)
+  }
+
+  .cmp-v {
+    font-size: 18px;
+    font-weight: 500;
+    margin: 4px 0
+  }
+
+  .cmp-sub {
+    font-size: 10px;
+    color: var(--color-text-secondary)
+  }
+
+  .prog-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px
+  }
+
+  .prog-lbl {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    min-width: 130px
+  }
+
+  .prog-bar {
+    flex: 1;
+    height: 5px;
+    background: var(--color-border-tertiary);
+    border-radius: 3px;
+    overflow: hidden
+  }
+
+  .prog-fill {
+    height: 100%;
+    border-radius: 3px
+  }
+
+  .prog-val {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    min-width: 45px;
+    text-align: right
+  }
 </style>
 <div class="w">
-<div class="tabs">
-  <div class="tab active" onclick="switchTab('cost')">Cost reduction</div>
-  <div class="tab" onclick="switchTab('speed')">Speed boost</div>
-  <div class="tab" onclick="switchTab('calc')">Live calculator</div>
-  <div class="tab" onclick="switchTab('arch')">Smart architecture</div>
-</div>
-
-<div id="tab-cost" class="panel active">
-  <div class="row">
-    <div class="card"><div class="card-val">70%</div><div class="card-lbl">savings via Spot</div><div class="card-save">vs On-Demand</div></div>
-    <div class="card"><div class="card-val">4×</div><div class="card-lbl">cheaper with AWQ</div><div class="card-save">vs BF16 full precision</div></div>
-    <div class="card"><div class="card-val">60%</div><div class="card-lbl">less GPU time</div><div class="card-save">with request caching</div></div>
-    <div class="card"><div class="card-val">$0</div><div class="card-lbl">idle GPU cost</div><div class="card-save">scale-to-zero possible</div></div>
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('cost')">Cost reduction</div>
+    <div class="tab" onclick="switchTab('speed')">Speed boost</div>
+    <div class="tab" onclick="switchTab('calc')">Live calculator</div>
+    <div class="tab" onclick="switchTab('arch')">Smart architecture</div>
   </div>
 
-  <div class="section">
-    <div class="sec-t">Strategy 1 — quantization (biggest single win)</div>
-    <div class="tip">
-      <div class="tip-icon bg" style="background:#EAF3DE;color:#3B6D11">Q</div>
-      <div class="tip-body">
-        <span class="impact imp-h">High impact</span>
-        <div class="tip-t">AWQ 4-bit quantization</div>
-        <div class="tip-s">Gemma 3 27B: BF16 = 54GB VRAM → AWQ = 14GB VRAM. Same g5.12xlarge now runs <strong>2 model replicas</strong> instead of 1. Double the throughput, same cost. Quality drop: ~1–2% on benchmarks — imperceptible in production.<br><br><code>--quantization awq --dtype half</code> in vLLM startup. Download AWQ weights: <code>google/gemma-3-27b-it-awq</code> from HuggingFace.</div>
-        <span class="badge bg">54GB → 14GB VRAM</span>
-        <span class="badge ba">2× more users same GPU</span>
+  <div id="tab-cost" class="panel active">
+    <div class="row">
+      <div class="card">
+        <div class="card-val">70%</div>
+        <div class="card-lbl">savings via Spot</div>
+        <div class="card-save">vs On-Demand</div>
+      </div>
+      <div class="card">
+        <div class="card-val">4×</div>
+        <div class="card-lbl">cheaper with AWQ</div>
+        <div class="card-save">vs BF16 full precision</div>
+      </div>
+      <div class="card">
+        <div class="card-val">60%</div>
+        <div class="card-lbl">less GPU time</div>
+        <div class="card-save">with request caching</div>
+      </div>
+      <div class="card">
+        <div class="card-val">$0</div>
+        <div class="card-lbl">idle GPU cost</div>
+        <div class="card-save">scale-to-zero possible</div>
       </div>
     </div>
-    <div class="tip">
-      <div class="tip-icon" style="background:#EEEDFE;color:#534AB7">S</div>
-      <div class="tip-body">
-        <span class="impact imp-h">High impact</span>
-        <div class="tip-t">EC2 Spot instances</div>
-        <div class="tip-s">Spot = same hardware, 60–70% cheaper. Risk: AWS can reclaim with 2-min warning. Mitigate with: Spot + On-Demand mixed fleet (50/50). If Spot disappears, On-Demand handles traffic. Use Spot for stateless inference workers — they can die anytime since each request is independent.<br><br>Setup: ASG with mixed instances policy. <code>OnDemandBaseCapacity: 1</code>, rest Spot.</div>
-        <span class="badge bg">$5.67/hr → $1.70/hr</span>
-        <span class="badge ba">g5.12xlarge Spot price</span>
+
+    <div class="section">
+      <div class="sec-t">Strategy 1 — quantization (biggest single win)</div>
+      <div class="tip">
+        <div class="tip-icon bg" style="background:#EAF3DE;color:#3B6D11">Q</div>
+        <div class="tip-body">
+          <span class="impact imp-h">High impact</span>
+          <div class="tip-t">AWQ 4-bit quantization</div>
+          <div class="tip-s">Gemma 3 27B: BF16 = 54GB VRAM → AWQ = 14GB VRAM. Same g5.12xlarge now runs <strong>2 model
+              replicas</strong> instead of 1. Double the throughput, same cost. Quality drop: ~1–2% on benchmarks —
+            imperceptible in production.<br><br><code>--quantization awq --dtype half</code> in vLLM startup. Download
+            AWQ weights: <code>google/gemma-3-27b-it-awq</code> from HuggingFace.</div>
+          <span class="badge bg">54GB → 14GB VRAM</span>
+          <span class="badge ba">2× more users same GPU</span>
+        </div>
       </div>
-    </div>
-    <div class="tip">
-      <div class="tip-icon" style="background:#E1F5EE;color:#0F6E56">C</div>
-      <div class="tip-body">
-        <span class="impact imp-m">Medium impact</span>
-        <div class="tip-t">Semantic response caching</div>
-        <div class="tip-s">Cache LLM responses in Redis. For identical or near-identical prompts, return cached result — zero GPU cost. Exact cache hit: use prompt hash as key. Semantic cache: embed the prompt, find nearest cached response if cosine similarity &gt; 0.95.<br><br><code>GPTCache</code> library does this automatically. In production, 20–40% of requests are cache hits (FAQs, repeated queries).</div>
-        <span class="badge bg">20–40% requests free</span>
+      <div class="tip">
+        <div class="tip-icon" style="background:#EEEDFE;color:#534AB7">S</div>
+        <div class="tip-body">
+          <span class="impact imp-h">High impact</span>
+          <div class="tip-t">EC2 Spot instances</div>
+          <div class="tip-s">Spot = same hardware, 60–70% cheaper. Risk: AWS can reclaim with 2-min warning. Mitigate
+            with: Spot + On-Demand mixed fleet (50/50). If Spot disappears, On-Demand handles traffic. Use Spot for
+            stateless inference workers — they can die anytime since each request is independent.<br><br>Setup: ASG with
+            mixed instances policy. <code>OnDemandBaseCapacity: 1</code>, rest Spot.</div>
+          <span class="badge bg">$5.67/hr → $1.70/hr</span>
+          <span class="badge ba">g5.12xlarge Spot price</span>
+        </div>
       </div>
-    </div>
-    <div class="tip">
-      <div class="tip-icon" style="background:#FAEEDA;color:#854F0B">R</div>
-      <div class="tip-body">
-        <span class="impact imp-m">Medium impact</span>
-        <div class="tip-t">Right-size: smaller model for simple tasks</div>
-        <div class="tip-s">Not every task needs 27B parameters. Route simple queries to a smaller, cheaper model:<br>• Simple FAQ / classification → Gemma 3 2B (10× cheaper, fits on T4)<br>• Complex reasoning / code / agents → Gemma 3 27B<br><br>Use a fast classifier (even regex or a tiny 0.5B model) to route requests. This is called <strong>model routing</strong> or <strong>LLM cascade</strong>.</div>
-        <span class="badge bg">10× cheaper for simple tasks</span>
+      <div class="tip">
+        <div class="tip-icon" style="background:#E1F5EE;color:#0F6E56">C</div>
+        <div class="tip-body">
+          <span class="impact imp-m">Medium impact</span>
+          <div class="tip-t">Semantic response caching</div>
+          <div class="tip-s">Cache LLM responses in Redis. For identical or near-identical prompts, return cached result
+            — zero GPU cost. Exact cache hit: use prompt hash as key. Semantic cache: embed the prompt, find nearest
+            cached response if cosine similarity &gt; 0.95.<br><br><code>GPTCache</code> library does this
+            automatically. In production, 20–40% of requests are cache hits (FAQs, repeated queries).</div>
+          <span class="badge bg">20–40% requests free</span>
+        </div>
       </div>
-    </div>
-    <div class="tip">
-      <div class="tip-icon" style="background:#E6F1FB;color:#185FA5">P</div>
-      <div class="tip-body">
-        <span class="impact imp-l">Always do</span>
-        <div class="tip-t">Savings Plans + Reserved capacity</div>
-        <div class="tip-s">If you have predictable baseline load: commit to 1-year Savings Plan = 40% discount on On-Demand. Keep Spot for burst capacity above baseline. Rule: baseline load = Reserved/Savings Plan, spikes = Spot, emergency = On-Demand.</div>
-        <span class="badge bg">40% off baseline cost</span>
+      <div class="tip">
+        <div class="tip-icon" style="background:#FAEEDA;color:#854F0B">R</div>
+        <div class="tip-body">
+          <span class="impact imp-m">Medium impact</span>
+          <div class="tip-t">Right-size: smaller model for simple tasks</div>
+          <div class="tip-s">Not every task needs 27B parameters. Route simple queries to a smaller, cheaper model:<br>•
+            Simple FAQ / classification → Gemma 3 2B (10× cheaper, fits on T4)<br>• Complex reasoning / code / agents →
+            Gemma 3 27B<br><br>Use a fast classifier (even regex or a tiny 0.5B model) to route requests. This is called
+            <strong>model routing</strong> or <strong>LLM cascade</strong>.</div>
+          <span class="badge bg">10× cheaper for simple tasks</span>
+        </div>
+      </div>
+      <div class="tip">
+        <div class="tip-icon" style="background:#E6F1FB;color:#185FA5">P</div>
+        <div class="tip-body">
+          <span class="impact imp-l">Always do</span>
+          <div class="tip-t">Savings Plans + Reserved capacity</div>
+          <div class="tip-s">If you have predictable baseline load: commit to 1-year Savings Plan = 40% discount on
+            On-Demand. Keep Spot for burst capacity above baseline. Rule: baseline load = Reserved/Savings Plan, spikes
+            = Spot, emergency = On-Demand.</div>
+          <span class="badge bg">40% off baseline cost</span>
+        </div>
       </div>
     </div>
   </div>
-</div>
 
-<div id="tab-speed" class="panel">
-  <div class="row">
-    <div class="card"><div class="card-val">100ms</div><div class="card-lbl">TTFT achievable</div><div class="card-save">with speculative decoding</div></div>
-    <div class="card"><div class="card-val">3×</div><div class="card-lbl">faster decode</div><div class="card-save">speculative + chunked prefill</div></div>
-    <div class="card"><div class="card-val">0ms</div><div class="card-lbl">cold start felt</div><div class="card-save">with warm pool</div></div>
-    <div class="card"><div class="card-val">10ms</div><div class="card-lbl">tool call overhead</div><div class="card-save">parallel tool execution</div></div>
-  </div>
+  <div id="tab-speed" class="panel">
+    <div class="row">
+      <div class="card">
+        <div class="card-val">100ms</div>
+        <div class="card-lbl">TTFT achievable</div>
+        <div class="card-save">with speculative decoding</div>
+      </div>
+      <div class="card">
+        <div class="card-val">3×</div>
+        <div class="card-lbl">faster decode</div>
+        <div class="card-save">speculative + chunked prefill</div>
+      </div>
+      <div class="card">
+        <div class="card-val">0ms</div>
+        <div class="card-lbl">cold start felt</div>
+        <div class="card-save">with warm pool</div>
+      </div>
+      <div class="card">
+        <div class="card-val">10ms</div>
+        <div class="card-lbl">tool call overhead</div>
+        <div class="card-save">parallel tool execution</div>
+      </div>
+    </div>
 
-  <div class="section">
-    <div class="sec-t">Speed strategy — ordered by impact</div>
-    <div class="tip">
-      <div class="tip-icon bg" style="background:#EAF3DE;color:#3B6D11">1</div>
-      <div class="tip-body">
-        <span class="impact imp-h">Biggest win</span>
-        <div class="tip-t">Always stream tokens to user</div>
-        <div class="tip-s">User sees first word in ~100–300ms even if full response takes 5 seconds. This is the single highest-impact change for perceived speed — zero infra cost.<br><br><code>stream=True</code> in your API call. Frontend renders tokens as they arrive via SSE. The user's brain registers this as "fast" even for long responses.</div>
-        <span class="badge bg">100ms felt latency</span>
-        <span class="badge ba">zero infra cost</span>
+    <div class="section">
+      <div class="sec-t">Speed strategy — ordered by impact</div>
+      <div class="tip">
+        <div class="tip-icon bg" style="background:#EAF3DE;color:#3B6D11">1</div>
+        <div class="tip-body">
+          <span class="impact imp-h">Biggest win</span>
+          <div class="tip-t">Always stream tokens to user</div>
+          <div class="tip-s">User sees first word in ~100–300ms even if full response takes 5 seconds. This is the
+            single highest-impact change for perceived speed — zero infra cost.<br><br><code>stream=True</code> in your
+            API call. Frontend renders tokens as they arrive via SSE. The user's brain registers this as "fast" even for
+            long responses.</div>
+          <span class="badge bg">100ms felt latency</span>
+          <span class="badge ba">zero infra cost</span>
+        </div>
       </div>
-    </div>
-    <div class="tip">
-      <div class="tip-icon" style="background:#EEEDFE;color:#534AB7">2</div>
-      <div class="tip-body">
-        <span class="impact imp-h">High impact</span>
-        <div class="tip-t">Speculative decoding (draft model)</div>
-        <div class="tip-s">Run a tiny 2B "draft" model alongside Gemma 27B. Draft model proposes 4–6 tokens at once. Big model verifies them in parallel. When draft is right (most of the time), you get 4–6 tokens for the cost of 1 LLM forward pass. Result: 2–3× faster token generation.<br><br>vLLM supports this: <code>--speculative-model google/gemma-3-2b-it --num-speculative-tokens 5</code></div>
-        <span class="badge bg">2–3× faster generation</span>
+      <div class="tip">
+        <div class="tip-icon" style="background:#EEEDFE;color:#534AB7">2</div>
+        <div class="tip-body">
+          <span class="impact imp-h">High impact</span>
+          <div class="tip-t">Speculative decoding (draft model)</div>
+          <div class="tip-s">Run a tiny 2B "draft" model alongside Gemma 27B. Draft model proposes 4–6 tokens at once.
+            Big model verifies them in parallel. When draft is right (most of the time), you get 4–6 tokens for the cost
+            of 1 LLM forward pass. Result: 2–3× faster token generation.<br><br>vLLM supports this:
+            <code>--speculative-model google/gemma-3-2b-it --num-speculative-tokens 5</code></div>
+          <span class="badge bg">2–3× faster generation</span>
+        </div>
       </div>
-    </div>
-    <div class="tip">
-      <div class="tip-icon" style="background:#E1F5EE;color:#0F6E56">3</div>
-      <div class="tip-body">
-        <span class="impact imp-h">High impact</span>
-        <div class="tip-t">Parallel tool calls in agent loop</div>
-        <div class="tip-s">Instead of calling tools one-by-one (sequential: 3 tools × 500ms = 1.5s), call all independent tools simultaneously. LangGraph supports parallel tool execution natively.<br><br>Example: agent needs weather + stock price + news → fire all 3 MCP calls at once → collect results → single LLM reasoning step. 1.5s → 0.5s for that step.</div>
-        <span class="badge bg">3× faster agent tool phase</span>
+      <div class="tip">
+        <div class="tip-icon" style="background:#E1F5EE;color:#0F6E56">3</div>
+        <div class="tip-body">
+          <span class="impact imp-h">High impact</span>
+          <div class="tip-t">Parallel tool calls in agent loop</div>
+          <div class="tip-s">Instead of calling tools one-by-one (sequential: 3 tools × 500ms = 1.5s), call all
+            independent tools simultaneously. LangGraph supports parallel tool execution natively.<br><br>Example: agent
+            needs weather + stock price + news → fire all 3 MCP calls at once → collect results → single LLM reasoning
+            step. 1.5s → 0.5s for that step.</div>
+          <span class="badge bg">3× faster agent tool phase</span>
+        </div>
       </div>
-    </div>
-    <div class="tip">
-      <div class="tip-icon" style="background:#FAEEDA;color:#854F0B">4</div>
-      <div class="tip-body">
-        <span class="impact imp-m">Medium impact</span>
-        <div class="tip-t">Chunked prefill + prefix caching</div>
-        <div class="tip-s">vLLM prefix caching: if multiple requests share the same system prompt (they always do), the KV-cache for that prefix is computed once and reused. 0ms prefill cost for the shared part.<br><br>Enable: <code>--enable-prefix-caching</code> in vLLM. For agents with a long system prompt, this can cut TTFT by 50–70%.</div>
-        <span class="badge bg">50–70% lower TTFT</span>
-        <span class="badge ba">same system prompt reuse</span>
+      <div class="tip">
+        <div class="tip-icon" style="background:#FAEEDA;color:#854F0B">4</div>
+        <div class="tip-body">
+          <span class="impact imp-m">Medium impact</span>
+          <div class="tip-t">Chunked prefill + prefix caching</div>
+          <div class="tip-s">vLLM prefix caching: if multiple requests share the same system prompt (they always do),
+            the KV-cache for that prefix is computed once and reused. 0ms prefill cost for the shared
+            part.<br><br>Enable: <code>--enable-prefix-caching</code> in vLLM. For agents with a long system prompt,
+            this can cut TTFT by 50–70%.</div>
+          <span class="badge bg">50–70% lower TTFT</span>
+          <span class="badge ba">same system prompt reuse</span>
+        </div>
       </div>
-    </div>
-    <div class="tip">
-      <div class="tip-icon" style="background:#E6F1FB;color:#185FA5">5</div>
-      <div class="tip-body">
-        <span class="impact imp-m">Medium impact</span>
-        <div class="tip-t">Warm pool — eliminate cold starts</div>
-        <div class="tip-s">Gemma 3 27B takes 60–90s to load on a fresh EC2. With a warm pool, ASG pre-launches instances and loads the model before any traffic hits them. Users never see a cold start.<br><br>ASG warm pool config: <code>MinSize: 1</code> always warm. Scale-out pulls from warm pool (ready in ~10s) instead of launching cold (90s).</div>
-        <span class="badge bg">90s → 10s scale-out</span>
+      <div class="tip">
+        <div class="tip-icon" style="background:#E6F1FB;color:#185FA5">5</div>
+        <div class="tip-body">
+          <span class="impact imp-m">Medium impact</span>
+          <div class="tip-t">Warm pool — eliminate cold starts</div>
+          <div class="tip-s">Gemma 3 27B takes 60–90s to load on a fresh EC2. With a warm pool, ASG pre-launches
+            instances and loads the model before any traffic hits them. Users never see a cold start.<br><br>ASG warm
+            pool config: <code>MinSize: 1</code> always warm. Scale-out pulls from warm pool (ready in ~10s) instead of
+            launching cold (90s).</div>
+          <span class="badge bg">90s → 10s scale-out</span>
+        </div>
       </div>
-    </div>
-    <div class="tip">
-      <div class="tip-icon" style="background:#FAECE7;color:#993C1D">6</div>
-      <div class="tip-body">
-        <span class="impact imp-l">Low effort</span>
-        <div class="tip-t">max_new_tokens discipline</div>
-        <div class="tip-s">Set tight <code>max_new_tokens</code> per task type. A classification task needs 10 tokens, not 500. A chat reply needs 200, not 2000. Unused token budget still costs nothing, but stopping early means faster responses for tasks that finish quickly.<br><br>Use stop sequences: <code>stop=["</div>
+      <div class="tip">
+        <div class="tip-icon" style="background:#FAECE7;color:#993C1D">6</div>
+        <div class="tip-body">
+          <span class="impact imp-l">Low effort</span>
+          <div class="tip-t">max_new_tokens discipline</div>
+          <div class="tip-s">Set tight <code>max_new_tokens</code> per task type. A classification task needs 10 tokens,
+            not 500. A chat reply needs 200, not 2000. Unused token budget still costs nothing, but stopping early means
+            faster responses for tasks that finish quickly.<br><br>Use stop sequences: <code>stop=["</div>
         <span class="badge bb">free, just config</span>
       </div>
     </div>
@@ -252,97 +605,97 @@
 </div>
 
 <script>
-function switchTab(t){
-  document.querySelectorAll('.tab').forEach((el,i)=>{
-    const ids=['cost','speed','calc','arch'];
-    el.classList.toggle('active', ids[i]===t);
-  });
-  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-  document.getElementById('tab-'+t).classList.add('active');
-  if(t==='calc') calcCost();
-  if(t==='arch') buildChecklist();
-}
+  function switchTab(t) {
+    document.querySelectorAll('.tab').forEach((el, i) => {
+      const ids = ['cost', 'speed', 'calc', 'arch'];
+      el.classList.toggle('active', ids[i] === t);
+    });
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-' + t).classList.add('active');
+    if (t === 'calc') calcCost();
+    if (t === 'arch') buildChecklist();
+  }
 
-function calcCost(){
-  const dau = parseInt(document.getElementById('dau').value);
-  const rpu = parseInt(document.getElementById('rpu').value);
-  const tpr = parseInt(document.getElementById('tpr').value);
-  const cache = parseInt(document.getElementById('cache').value)/100;
-  document.getElementById('dau_v').textContent = dau.toLocaleString();
-  document.getElementById('rpu_v').textContent = rpu;
-  document.getElementById('tpr_v').textContent = tpr;
-  document.getElementById('cache_v').textContent = Math.round(cache*100)+'%';
+  function calcCost() {
+    const dau = parseInt(document.getElementById('dau').value);
+    const rpu = parseInt(document.getElementById('rpu').value);
+    const tpr = parseInt(document.getElementById('tpr').value);
+    const cache = parseInt(document.getElementById('cache').value) / 100;
+    document.getElementById('dau_v').textContent = dau.toLocaleString();
+    document.getElementById('rpu_v').textContent = rpu;
+    document.getElementById('tpr_v').textContent = tpr;
+    document.getElementById('cache_v').textContent = Math.round(cache * 100) + '%';
 
-  const totalReqDay = dau * rpu;
-  const effectiveReq = Math.round(totalReqDay * (1-cache));
-  const totalTokDay = effectiveReq * tpr;
-  const totalTokHr = totalTokDay / 24;
+    const totalReqDay = dau * rpu;
+    const effectiveReq = Math.round(totalReqDay * (1 - cache));
+    const totalTokDay = effectiveReq * tpr;
+    const totalTokHr = totalTokDay / 24;
 
-  const configs = [
-    {name:"BF16 On-Demand", tps:55,  costHr:5.67,  label:"Baseline", best:false},
-    {name:"AWQ On-Demand",  tps:110, costHr:5.67,  label:"2× faster, same cost", best:false},
-    {name:"AWQ Spot",       tps:110, costHr:1.70,  label:"Recommended", best:true},
-    {name:"AWQ Spot + cache",tps:110,costHr:1.70,  label:"Best overall", best:false, cacheBoost:true},
-  ];
+    const configs = [
+      { name: "BF16 On-Demand", tps: 55, costHr: 5.67, label: "Baseline", best: false },
+      { name: "AWQ On-Demand", tps: 110, costHr: 5.67, label: "2× faster, same cost", best: false },
+      { name: "AWQ Spot", tps: 110, costHr: 1.70, label: "Recommended", best: true },
+      { name: "AWQ Spot + cache", tps: 110, costHr: 1.70, label: "Best overall", best: false, cacheBoost: true },
+    ];
 
-  let html = '<div class="compare-grid">';
-  configs.forEach(c=>{
-    const effectiveTps = c.cacheBoost ? c.tps/(1-cache) : c.tps;
-    const nodesNeeded = Math.max(1, Math.ceil(totalTokHr / (effectiveTps * 3600)));
-    const dailyCost = nodesNeeded * c.costHr * 24;
-    const costPer1kTok = (dailyCost / (totalTokDay/1000)).toFixed(4);
-    html += `<div class="cmp${c.best?' best':''}">
+    let html = '<div class="compare-grid">';
+    configs.forEach(c => {
+      const effectiveTps = c.cacheBoost ? c.tps / (1 - cache) : c.tps;
+      const nodesNeeded = Math.max(1, Math.ceil(totalTokHr / (effectiveTps * 3600)));
+      const dailyCost = nodesNeeded * c.costHr * 24;
+      const costPer1kTok = (dailyCost / (totalTokDay / 1000)).toFixed(4);
+      html += `<div class="cmp${c.best ? ' best' : ''}">
       <div class="cmp-name">${c.name}</div>
-      <div class="cmp-v" style="color:${c.best?'var(--color-text-info)':'var(--color-text-primary)'}">$${Math.round(dailyCost)}<span style="font-size:12px;font-weight:400">/day</span></div>
-      <div class="cmp-sub">${nodesNeeded} node${nodesNeeded>1?'s':''} needed</div>
+      <div class="cmp-v" style="color:${c.best ? 'var(--color-text-info)' : 'var(--color-text-primary)'}">$${Math.round(dailyCost)}<span style="font-size:12px;font-weight:400">/day</span></div>
+      <div class="cmp-sub">${nodesNeeded} node${nodesNeeded > 1 ? 's' : ''} needed</div>
       <div class="cmp-sub" style="margin-top:3px">$${costPer1kTok}/1k tok</div>
-      <span class="badge ${c.best?'bg':'ba'}" style="margin-top:6px">${c.label}</span>
+      <span class="badge ${c.best ? 'bg' : 'ba'}" style="margin-top:6px">${c.label}</span>
     </div>`;
-  });
-  html += '</div>';
-  html += `<div style="font-size:11px;color:var(--color-text-tertiary);margin-top:8px">${totalReqDay.toLocaleString()} req/day · ${Math.round(cache*100)}% cache hits → ${effectiveReq.toLocaleString()} GPU requests · ${(totalTokDay/1000000).toFixed(1)}M tokens/day</div>`;
-  document.getElementById('cost_compare').innerHTML = html;
-}
+    });
+    html += '</div>';
+    html += `<div style="font-size:11px;color:var(--color-text-tertiary);margin-top:8px">${totalReqDay.toLocaleString()} req/day · ${Math.round(cache * 100)}% cache hits → ${effectiveReq.toLocaleString()} GPU requests · ${(totalTokDay / 1000000).toFixed(1)}M tokens/day</div>`;
+    document.getElementById('cost_compare').innerHTML = html;
+  }
 
-function buildChecklist(){
-  const items = [
-    {done:false, effort:"30 min", save:"free speed",  text:"Enable streaming (stream=True) — instant perceived latency improvement"},
-    {done:false, effort:"1 hr",   save:"2× throughput",text:"Switch to AWQ 4-bit weights — same quality, half the VRAM, double capacity"},
-    {done:false, effort:"1 hr",   save:"70% cost cut",  text:"Move to EC2 Spot instances with On-Demand fallback (mixed ASG policy)"},
-    {done:false, effort:"2 hrs",  save:"50% TTFT drop", text:"Enable vLLM prefix caching (--enable-prefix-caching) for shared system prompts"},
-    {done:false, effort:"2 hrs",  save:"20–40% free",   text:"Add Redis semantic cache (GPTCache) for repeated/similar queries"},
-    {done:false, effort:"4 hrs",  save:"3× agent speed",text:"Parallel tool calls in LangGraph for independent MCP tools"},
-    {done:false, effort:"4 hrs",  save:"10× cheaper",   text:"Add Gemma 2B tier for simple queries — route by complexity classifier"},
-    {done:false, effort:"1 day",  save:"2–3× gen speed",text:"Speculative decoding with Gemma 2B as draft model"},
-    {done:false, effort:"1 day",  save:"zero cold start",text:"ASG warm pool so new instances are pre-loaded with model weights"},
-    {done:false, effort:"1 day",  save:"agent reliability",text:"Async job queue (SQS) for agent tasks — no API Gateway timeouts"},
-  ];
-  let html = '';
-  items.forEach((item,i)=>{
-    html += `<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer" onclick="toggleCheck(this)">
+  function buildChecklist() {
+    const items = [
+      { done: false, effort: "30 min", save: "free speed", text: "Enable streaming (stream=True) — instant perceived latency improvement" },
+      { done: false, effort: "1 hr", save: "2× throughput", text: "Switch to AWQ 4-bit weights — same quality, half the VRAM, double capacity" },
+      { done: false, effort: "1 hr", save: "70% cost cut", text: "Move to EC2 Spot instances with On-Demand fallback (mixed ASG policy)" },
+      { done: false, effort: "2 hrs", save: "50% TTFT drop", text: "Enable vLLM prefix caching (--enable-prefix-caching) for shared system prompts" },
+      { done: false, effort: "2 hrs", save: "20–40% free", text: "Add Redis semantic cache (GPTCache) for repeated/similar queries" },
+      { done: false, effort: "4 hrs", save: "3× agent speed", text: "Parallel tool calls in LangGraph for independent MCP tools" },
+      { done: false, effort: "4 hrs", save: "10× cheaper", text: "Add Gemma 2B tier for simple queries — route by complexity classifier" },
+      { done: false, effort: "1 day", save: "2–3× gen speed", text: "Speculative decoding with Gemma 2B as draft model" },
+      { done: false, effort: "1 day", save: "zero cold start", text: "ASG warm pool so new instances are pre-loaded with model weights" },
+      { done: false, effort: "1 day", save: "agent reliability", text: "Async job queue (SQS) for agent tasks — no API Gateway timeouts" },
+    ];
+    let html = '';
+    items.forEach((item, i) => {
+      html += `<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer" onclick="toggleCheck(this)">
       <div style="width:16px;height:16px;border:0.5px solid var(--color-border-secondary);border-radius:3px;flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;font-size:10px" class="chk"></div>
       <div style="flex:1">
-        <div style="font-size:12px;font-weight:500;color:var(--color-text-primary)">${i+1}. ${item.text}</div>
+        <div style="font-size:12px;font-weight:500;color:var(--color-text-primary)">${i + 1}. ${item.text}</div>
         <div style="margin-top:3px;display:flex;gap:5px">
           <span class="badge bb">${item.effort}</span>
           <span class="badge bg">${item.save}</span>
         </div>
       </div>
     </div>`;
-  });
-  document.getElementById('checklist').innerHTML = html;
-}
+    });
+    document.getElementById('checklist').innerHTML = html;
+  }
 
-function toggleCheck(el){
-  const chk = el.querySelector('.chk');
-  const checked = chk.textContent === '✓';
-  chk.textContent = checked ? '' : '✓';
-  chk.style.background = checked ? '' : 'var(--color-background-success)';
-  chk.style.color = checked ? '' : 'var(--color-text-success)';
-  chk.style.borderColor = checked ? '' : 'var(--color-border-success)';
-  el.style.opacity = checked ? '1' : '0.5';
-}
+  function toggleCheck(el) {
+    const chk = el.querySelector('.chk');
+    const checked = chk.textContent === '✓';
+    chk.textContent = checked ? '' : '✓';
+    chk.style.background = checked ? '' : 'var(--color-background-success)';
+    chk.style.color = checked ? '' : 'var(--color-text-success)';
+    chk.style.borderColor = checked ? '' : 'var(--color-border-success)';
+    el.style.opacity = checked ? '1' : '0.5';
+  }
 
-calcCost();
-buildChecklist();
+  calcCost();
+  buildChecklist();
 </script>
